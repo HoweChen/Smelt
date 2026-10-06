@@ -1,5 +1,7 @@
 # Smelt
 
+[![CI](https://github.com/ProjAnvil/Smelt/actions/workflows/ci.yml/badge.svg)](https://github.com/ProjAnvil/Smelt/actions/workflows/ci.yml)
+
 **Smelt** — a behavior-verification framework for agent skills. Put a skill in
 the furnace: **given** contexts and an agent, **when** a trigger fires,
 **then** assert on the outcome. One consistent yardstick to verify that each

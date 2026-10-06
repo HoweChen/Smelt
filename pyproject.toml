@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "smelt"
+version = "0.2.0"
+description = "Smelt — verify agent-skill behavior with a fluent given/when/then DSL: LLM tool loops, LLM-as-judge, and scored evaluation reports"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+    "langchain-core>=0.3",
+    "jsonschema>=4.0",
+    "coverage>=7.16.2",
+]
+openai = ["openai>=1.0"]
+json = ["jsonschema>=4.0"]
+langchain = ["langchain-core>=0.3"]
+
+[project.scripts]
+smelt = "smelt.cli:main"
+
+[project.entry-points.pytest11]
+smelt = "smelt.pytest_plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/smelt"]
+
+[tool.uv]
+package = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["src/smelt"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 90
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

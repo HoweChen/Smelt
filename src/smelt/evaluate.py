@@ -1,0 +1,474 @@
+"""Skill evaluation: behavior score (then results) + writing score (LLM review of
+SKILL.md) + static lint score, weighted into a report.
+
+Usage::
+
+    from smelt import evaluate_skill
+
+    report = (
+        evaluate_skill("skills/commit", judge=judge_llm)
+        .with_cases(case_a, case_b)            # behavior cases (unbound cases auto-bind the skill under review)
+        .with_lint()                           # static lint score
+        .with_writing()                        # LLM writing review (per dimension)
+        .with_suggestions(max_items=5)         # LLM improvement suggestions
+        .with_weights(behavior=0.5, writing=0.3, lint=0.2)
+        .run()
+    )
+    report.save("reports/commit.md")           # extension picks the format; .to_json() also works
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any
+
+from smelt.case import SmeltCase
+from smelt.given.agents.llm import LLMClient
+from smelt.given.agents.smelt import smelt_agent
+from smelt.lint.checks import run_checks
+from smelt.lint.loader import load_skill
+from smelt.lint.scorer import build_report, grade_of
+from smelt.results import CaseResult
+from smelt.then.expectations import _extract_json
+from smelt.tools import Tool
+
+# ---------------------------------------------------------------------------
+# Data model
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WritingDimension:
+    """One dimension of the writing review."""
+
+    name: str
+    score: float  # 0~1
+    comment: str = ""
+
+
+@dataclass(frozen=True)
+class WritingAssessment:
+    """LLM assessment of the SKILL.md's writing quality."""
+
+    dimensions: tuple[WritingDimension, ...]
+    overall_comment: str = ""
+    error: str | None = None  # failure reason; dimensions empty when set
+
+    @property
+    def score(self) -> float | None:
+        if not self.dimensions:
+            return None
+        return sum(d.score for d in self.dimensions) / len(self.dimensions)
+
+
+@dataclass
+class SkillEvaluation:
+    """A comprehensive evaluation report for one skill."""
+
+    skill_path: str
+    skill_name: str
+    behavior_results: list[CaseResult] = field(default_factory=list)
+    lint_report: Any = None  # smelt.lint.models.SkillReport
+    writing: WritingAssessment | None = None
+    suggestions: list[str] = field(default_factory=list)
+    suggestions_error: str | None = None
+    weights: dict[str, float] = field(default_factory=dict)
+
+    # -- per-part scores (0~1; None when disabled or no data) -----------------
+    @property
+    def behavior_score(self) -> float | None:
+        if not self.behavior_results:
+            return None
+        return sum(r.score for r in self.behavior_results) / len(self.behavior_results)
+
+    @property
+    def lint_score(self) -> float | None:
+        if self.lint_report is None:
+            return None
+        return self.lint_report.total_score / 100.0
+
+    @property
+    def writing_score(self) -> float | None:
+        return self.writing.score if self.writing else None
+
+    @property
+    def overall_score(self) -> float | None:
+        """Weighted total (0~100). Only parts with data count; weights normalize."""
+        parts = {
+            "behavior": self.behavior_score,
+            "writing": self.writing_score,
+            "lint": self.lint_score,
+        }
+        earned = sum(self.weights.get(k, 0.0) * v for k, v in parts.items() if v is not None)
+        total_weight = sum(self.weights.get(k, 0.0) for k, v in parts.items() if v is not None)
+        if total_weight == 0:
+            return None
+        return earned / total_weight * 100.0
+
+    @property
+    def grade(self) -> str:
+        score = self.overall_score
+        return grade_of(score) if score is not None else "-"
+
+    # -- output ---------------------------------------------------------------
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "skill": {"path": self.skill_path, "name": self.skill_name},
+            "overall": {"score": self.overall_score, "grade": self.grade, "weights": self.weights},
+            "scores": {
+                "behavior": self.behavior_score,
+                "writing": self.writing_score,
+                "lint": self.lint_score,
+            },
+            "behavior": [
+                {
+                    "case": r.case_name,
+                    "score": r.score,
+                    "passed": r.passed,
+                    "error": r.error,
+                    "expectations": [
+                        {
+                            "name": e.name,
+                            "score": e.score,
+                            "threshold": e.threshold,
+                            "passed": e.passed,
+                            "message": e.message,
+                        }
+                        for e in r.expectations
+                    ],
+                }
+                for r in self.behavior_results
+            ],
+            "lint": (
+                {
+                    "total_score": self.lint_report.total_score,
+                    "grade": self.lint_report.grade,
+                    "checks": [
+                        {
+                            "check_id": c.check_id,
+                            "name": c.name,
+                            "score": c.score,
+                            "passed": c.passed,
+                            "messages": [{"severity": m.severity.value, "text": m.text} for m in c.messages],
+                        }
+                        for c in self.lint_report.results
+                    ],
+                }
+                if self.lint_report
+                else None
+            ),
+            "writing": (
+                {
+                    "score": self.writing.score,
+                    "overall_comment": self.writing.overall_comment,
+                    "error": self.writing.error,
+                    "dimensions": [
+                        {"name": d.name, "score": d.score, "comment": d.comment}
+                        for d in self.writing.dimensions
+                    ],
+                }
+                if self.writing
+                else None
+            ),
+            "suggestions": self.suggestions,
+            "suggestions_error": self.suggestions_error,
+        }
+
+    def to_json(self, *, indent: int = 2) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
+
+    def to_markdown(self) -> str:
+        lines = [f"# Skill Evaluation Report: {self.skill_name}", ""]
+        score = self.overall_score
+        lines += [
+            f"- Path: `{self.skill_path}`",
+            f"- Overall: **{f'{score:.1f}' if score is not None else '-'} / 100**  Grade: **{self.grade}**",
+            "- Parts: " + ", ".join(
+                f"{label} {f'{v * 100:.1f}' if v is not None else '-'}"
+                for label, v in (
+                    ("behavior", self.behavior_score),
+                    ("writing", self.writing_score),
+                    ("lint", self.lint_score),
+                )
+            ),
+            "",
+        ]
+
+        if self.behavior_results:
+            lines += ["## Behavior Tests", ""]
+            for r in self.behavior_results:
+                mark = "✅" if r.passed else "❌"
+                lines.append(f"### {mark} {r.case_name} ({r.score * 100:.0f} pts)")
+                if r.error:
+                    lines.append(f"- Runtime error: {r.error}")
+                for e in r.expectations:
+                    icon = "✔" if e.passed else "✘"
+                    msg = f" — {e.message}" if e.message else ""
+                    lines.append(f"- {icon} `{e.name}` {e.score:.2f} (threshold {e.threshold:.2f}){msg}")
+                lines.append("")
+
+        if self.lint_report is not None:
+            lines += [
+                "## Static Lint",
+                "",
+                f"Total {self.lint_report.total_score:.1f}, grade {self.lint_report.grade}",
+                "",
+                "| Check | Score | Result |",
+                "|---|---|---|",
+            ]
+            for c in self.lint_report.results:
+                lines.append(f"| {c.name} | {c.score:.1f} | {'✅' if c.passed else '❌'} |")
+            lines.append("")
+
+        if self.writing is not None:
+            lines += ["## Writing Review (LLM)", ""]
+            if self.writing.error:
+                lines.append(f"Review failed: {self.writing.error}")
+            else:
+                lines += ["| Dimension | Score | Comment |", "|---|---|---|"]
+                for d in self.writing.dimensions:
+                    lines.append(f"| {d.name} | {d.score:.2f} | {d.comment} |")
+                if self.writing.overall_comment:
+                    lines += ["", f"> {self.writing.overall_comment}"]
+            lines.append("")
+
+        lines += ["## Improvement Suggestions", ""]
+        if self.suggestions:
+            lines += [f"{i}. {s}" for i, s in enumerate(self.suggestions, 1)]
+        elif self.suggestions_error:
+            lines.append(f"Suggestion generation failed: {self.suggestions_error}")
+        else:
+            lines.append("(not enabled)")
+        lines.append("")
+        return "\n".join(lines)
+
+    def save(self, path: str | Path, *, format: str | None = None) -> Path:
+        """Write the report to a file. format defaults from the extension (.json → json,
+        otherwise markdown)."""
+        target = Path(path)
+        fmt = format or ("json" if target.suffix == ".json" else "markdown")
+        content = self.to_json() if fmt == "json" else self.to_markdown()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content + "\n", encoding="utf-8")
+        return target
+
+
+# ---------------------------------------------------------------------------
+# LLM judging
+# ---------------------------------------------------------------------------
+
+DEFAULT_DIMENSIONS: tuple[str, ...] = (
+    "Metadata & naming (does name/description accurately capture the purpose)",
+    "Trigger guidance (can an agent tell when to load this skill)",
+    "Structure & readability (sectioning, length control)",
+    "Examples & edge cases (concrete examples, failure-path notes)",
+    "Actionability (steps are explicit, executable, unambiguous)",
+)
+
+WRITING_PROMPT = """You are a skill-documentation reviewer. Review the writing quality of the SKILL.md below,
+dimension by dimension.
+
+## Document under review (path: {path})
+```markdown
+{document}
+```
+
+## Dimensions (score each 0.0~1.0 with a one-sentence comment)
+{dimension_list}
+
+Output JSON only: {{"dimensions": [{{"name": "<dimension>", "score": <0~1>, "comment": "<one sentence>"}}], "overall_comment": "<one sentence overall>"}}"""
+
+SUGGESTIONS_PROMPT = """You are a skill-improvement advisor. Based on the review evidence below, give at most
+{max_items} **concrete, actionable** improvement suggestions, ordered by priority; one sentence
+each, stating what to change and where. Do not invent issues the evidence does not support.
+
+## Evidence
+{evidence}
+
+Output JSON only: {{"suggestions": ["...", "..."]}}"""
+
+
+def _judge_writing(judge: LLMClient, path: Path, document: str, dimensions: Sequence[str]) -> WritingAssessment:
+    prompt = WRITING_PROMPT.format(
+        path=path,
+        document=document,
+        dimension_list="\n".join(f"{i}. {d}" for i, d in enumerate(dimensions, 1)),
+    )
+    try:
+        response = judge.complete([{"role": "user", "content": prompt}], [])
+        parsed = _extract_json(response.content)
+        dims = tuple(
+            WritingDimension(
+                name=str(d.get("name", "?")),
+                score=max(0.0, min(1.0, float(d.get("score", 0.0)))),
+                comment=str(d.get("comment", "")),
+            )
+            for d in parsed["dimensions"]
+        )
+        if not dims:
+            raise ValueError("judge returned empty dimensions")
+        return WritingAssessment(dimensions=dims, overall_comment=str(parsed.get("overall_comment", "")))
+    except Exception as e:  # noqa: BLE001 - a judging failure must not block the rest of the review
+        return WritingAssessment(dimensions=(), error=f"{type(e).__name__}: {e}")
+
+
+def _build_evidence(evaluation: SkillEvaluation) -> str:
+    evidence: dict[str, Any] = {}
+    if evaluation.behavior_results:
+        evidence["behavior_tests"] = [
+            {
+                "case": r.case_name,
+                "passed": r.passed,
+                "error": r.error,
+                "failed_expectations": [
+                    {"name": e.name, "score": e.score, "message": e.message}
+                    for e in r.expectations
+                    if not e.passed
+                ],
+            }
+            for r in evaluation.behavior_results
+        ]
+    if evaluation.lint_report is not None:
+        evidence["lint_issues"] = [
+            f"[{c.check_id}] {m.text}"
+            for c in evaluation.lint_report.results
+            for m in c.messages
+        ]
+    if evaluation.writing and evaluation.writing.dimensions:
+        evidence["weak_writing_dimensions"] = [
+            {"dimension": d.name, "score": d.score, "comment": d.comment}
+            for d in evaluation.writing.dimensions
+            if d.score < 0.8
+        ]
+    return json.dumps(evidence, ensure_ascii=False, indent=2) or "{}"
+
+
+def _judge_suggestions(judge: LLMClient, evaluation: SkillEvaluation, max_items: int) -> tuple[list[str], str | None]:
+    prompt = SUGGESTIONS_PROMPT.format(max_items=max_items, evidence=_build_evidence(evaluation))
+    try:
+        response = judge.complete([{"role": "user", "content": prompt}], [])
+        parsed = _extract_json(response.content)
+        suggestions = [str(s) for s in parsed["suggestions"]][:max_items]
+        return suggestions, None
+    except Exception as e:  # noqa: BLE001
+        return [], f"{type(e).__name__}: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Builder
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class SkillEvaluationBuilder:
+    """Fluent builder returned by evaluate_skill()."""
+
+    skill_path: Path
+    judge: LLMClient | None = None
+    agent_llm: LLMClient | None = None
+    tools: tuple[Tool, ...] = ()
+    cases: tuple[SmeltCase, ...] = ()
+    lint_enabled: bool = True
+    writing_enabled: bool = True
+    writing_dimensions: tuple[str, ...] = DEFAULT_DIMENSIONS
+    suggestions_enabled: bool = True
+    suggestions_max: int = 5
+    weight_map: dict[str, float] = field(default_factory=lambda: {"behavior": 0.5, "writing": 0.3, "lint": 0.2})
+
+    def with_cases(self, *cases: SmeltCase) -> SkillEvaluationBuilder:
+        """Attach behavior cases. Cases without an agent auto-bind the skill under
+        review (using agent_llm or judge)."""
+        return replace(self, cases=self.cases + tuple(cases))
+
+    def with_lint(self, enabled: bool = True) -> SkillEvaluationBuilder:
+        return replace(self, lint_enabled=enabled)
+
+    def with_writing(self, *, dimensions: Sequence[str] | None = None, enabled: bool = True) -> SkillEvaluationBuilder:
+        kwargs: dict[str, Any] = {"writing_enabled": enabled}
+        if dimensions is not None:
+            if not dimensions:
+                raise ValueError("dimensions must not be empty")
+            kwargs["writing_dimensions"] = tuple(dimensions)
+        return replace(self, **kwargs)
+
+    def with_suggestions(self, *, max_items: int = 5, enabled: bool = True) -> SkillEvaluationBuilder:
+        return replace(self, suggestions_enabled=enabled, suggestions_max=max_items)
+
+    def with_weights(self, *, behavior: float, writing: float, lint: float) -> SkillEvaluationBuilder:
+        for name, value in (("behavior", behavior), ("writing", writing), ("lint", lint)):
+            if value < 0:
+                raise ValueError(f"weight {name} must not be negative")
+        return replace(self, weight_map={"behavior": behavior, "writing": writing, "lint": lint})
+
+    def run(self) -> SkillEvaluation:
+        doc = load_skill(self.skill_path)
+        evaluation = SkillEvaluation(
+            skill_path=str(self.skill_path),
+            skill_name=doc.name,
+            weights=dict(self.weight_map),
+        )
+
+        if self.cases:
+            evaluation.behavior_results = [self._bind(case).run() for case in self.cases]
+
+        if self.lint_enabled:
+            evaluation.lint_report = build_report(doc, run_checks(doc))
+
+        if self.writing_enabled:
+            if self.judge is None:
+                evaluation.writing = WritingAssessment(dimensions=(), error="no judge LLM provided; writing review skipped")
+            else:
+                evaluation.writing = _judge_writing(
+                    self.judge, self.skill_path, self._read_document(), self.writing_dimensions
+                )
+
+        if self.suggestions_enabled:
+            if self.judge is None:
+                evaluation.suggestions_error = "no judge LLM provided; suggestion generation skipped"
+            else:
+                evaluation.suggestions, evaluation.suggestions_error = _judge_suggestions(
+                    self.judge, evaluation, self.suggestions_max
+                )
+
+        return evaluation
+
+    def _read_document(self) -> str:
+        """Read the raw SKILL.md (frontmatter included — the writing review needs metadata)."""
+        path = self.skill_path
+        if path.is_dir():
+            path = path / "SKILL.md"
+        return path.read_text(encoding="utf-8")
+
+    def _bind(self, case: SmeltCase) -> SmeltCase:
+        """Cases without an agent get bound to a SmeltAgent loading the skill under review."""
+        if case.agent is not None:
+            return case
+        llm = self.agent_llm or self.judge
+        if llm is None:
+            raise ValueError(f"case {case.name!r} has no agent, and no agent_llm / judge was provided for auto-binding")
+        return case.given(smelt_agent(self.skill_path, llm=llm, tools=self.tools))
+
+
+def evaluate_skill(
+    skill: str | Path,
+    *,
+    judge: LLMClient | None = None,
+    agent_llm: LLMClient | None = None,
+    tools: Sequence[Tool] = (),
+) -> SkillEvaluationBuilder:
+    """Start a comprehensive skill evaluation.
+
+    - ``judge``: judging model for the writing review and suggestion generation;
+    - ``agent_llm``: model used when auto-binding agents for behavior cases
+      (falls back to judge);
+    - ``tools``: tools available to auto-bound agents.
+    """
+    return SkillEvaluationBuilder(
+        skill_path=Path(skill),
+        judge=judge,
+        agent_llm=agent_llm,
+        tools=tuple(tools),
+    )

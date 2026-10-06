@@ -27,10 +27,15 @@ class ToolCall:
 
 @dataclass(frozen=True)
 class LLMResponse:
-    """Result of one completion: text content plus zero or more tool calls."""
+    """Result of one completion: text content plus zero or more tool calls.
+
+    ``usage`` is optional token accounting ({prompt_tokens, completion_tokens, ...})
+    reported by the provider; SmeltAgent accumulates it into trace metadata.
+    """
 
     content: str = ""
     tool_calls: tuple[ToolCall, ...] = ()
+    usage: dict[str, int] | None = None
 
     @classmethod
     def say(cls, content: str) -> LLMResponse:
@@ -133,4 +138,10 @@ class OpenAIChatClient:
             )
             for c in (message.tool_calls or [])
         )
-        return LLMResponse(content=message.content or "", tool_calls=calls)
+        usage = getattr(completion, "usage", None)
+        usage_dict = (
+            {k: int(v) for k, v in vars(usage).items() if isinstance(v, int)}
+            if usage is not None
+            else None
+        )
+        return LLMResponse(content=message.content or "", tool_calls=calls, usage=usage_dict)

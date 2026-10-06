@@ -34,6 +34,8 @@ class Trace:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     messages: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    turns: int = 0  # LLM turns taken (agent loop iterations); 1 for fixed-output agents
+    wall_time_s: float | None = None  # agent run duration; set by the runner
 
     def calls_named(self, name: str) -> list[ToolCallRecord]:
         """All tool calls named ``name``."""

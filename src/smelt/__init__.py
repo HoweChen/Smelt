@@ -65,7 +65,10 @@ from smelt.then import (
     output_contains,
     output_equals,
     text_similar,
+    tool_budget,
     tool_call,
+    turns_used,
+    wall_time,
 )
 from smelt.tools import Tool, tool
 from smelt.trace import ToolCallRecord, Trace
@@ -128,6 +131,9 @@ __all__ = [
     "text",
     "text_similar",
     "tool",
+    "tool_budget",
     "tool_call",
     "tools",
+    "turns_used",
+    "wall_time",
 ]

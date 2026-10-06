@@ -120,6 +120,25 @@ are never overridden by the file.
 | `text_similar(reference, threshold=0.8, scorer=...)` | similarity to the reference; difflib by default, inject an embedding scorer if you like |
 | `json_output(schema, contains={...})` | parseable 0.4 + schema 0.4 + field subset 0.2; full JSON Schema with `smelt[json]` installed |
 | `llm_judge(judge, criteria=..., reference=..., threshold=0.8)` | LLM-as-judge: a judge model scores the output 0~1 against a rubric |
+| `turns_used(max=N)` / `tool_budget(name, max=N)` / `wall_time(max_seconds=S)` | budget gates: agent loop turns / tool call count / wall-clock time — deterministic, binary |
+
+### Budget assertions (operating envelopes)
+
+Quality can pass while the run is unaffordable — the "budget burner" failure
+mode. Budget assertions are deterministic gates on the trace (no LLM call),
+catching versions that get slower or more expensive:
+
+```python
+.then(turns_used(max=5))                 # 3 turns vs 8 turns no longer score alike
+.then(tool_budget("run_command", max=2)) # or tool_budget(max=4) for the total
+.then(wall_time(max_seconds=10))
+```
+
+The runner times every run (`trace.wall_time_s`) and agents report their turn
+count (`trace.turns`); when the LLM client reports token usage it is summed
+into `trace.metadata["token_usage"]`. Because budgets are ordinary
+expectations, they flow into repeated sampling, compare(), and CI gates like
+any other assertion.
 
 Case score = mean of assertion scores; an assertion passes when `score >= threshold`.
 Custom assertions implement the `Expectation` protocol (`evaluate(trace) -> ExpectationResult`).

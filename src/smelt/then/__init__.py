@@ -7,7 +7,10 @@ from smelt.then.expectations import (
     output_contains,
     output_equals,
     text_similar,
+    tool_budget,
     tool_call,
+    turns_used,
+    wall_time,
 )
 from smelt.then.judge import LLMJudgeExpectation, llm_judge
 
@@ -20,5 +23,8 @@ __all__ = [
     "output_contains",
     "output_equals",
     "text_similar",
+    "tool_budget",
     "tool_call",
+    "turns_used",
+    "wall_time",
 ]

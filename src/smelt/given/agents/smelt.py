@@ -72,11 +72,20 @@ class SmeltAgent:
 
         cwd = Path.cwd()
         os.chdir(ctx.workspace)
+        turns = 0
+        usage_total: dict[str, int] = {}
         try:
             for _ in range(self.max_turns):
                 response = self.llm.complete(messages, self.tools)
+                turns += 1
+                if response.usage:
+                    for key, value in response.usage.items():
+                        usage_total[key] = usage_total.get(key, 0) + int(value)
                 if not response.tool_calls:
                     trace.output = response.content
+                    trace.turns = turns
+                    if usage_total:
+                        trace.metadata["token_usage"] = usage_total
                     messages.append({"role": "assistant", "content": response.content})
                     return trace
 
@@ -94,6 +103,9 @@ class SmeltAgent:
                         "content": record.error if record.error else json.dumps(record.result, ensure_ascii=False, default=str),
                     })
             trace.output = "(max_turns reached without a final answer)"
+            trace.turns = turns
+            if usage_total:
+                trace.metadata["token_usage"] = usage_total
             return trace
         finally:
             os.chdir(cwd)

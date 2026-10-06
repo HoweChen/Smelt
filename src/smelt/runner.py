@@ -9,6 +9,7 @@ each expectation's score = mean across the runs that produced it. The spread
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -67,7 +68,9 @@ def _run_once(case: SmeltCase) -> CaseResult:
     ctx = CaseContext(workspace=workspace)
     try:
         ctx.materialize(list(case.contexts))
+        start = time.monotonic()
         trace = agent.run(ctx, case.trigger)
+        trace.wall_time_s = time.monotonic() - start
     except Exception as e:  # noqa: BLE001 - the framework stays stable; errors land in the result
         return CaseResult(
             case_name=case.name,

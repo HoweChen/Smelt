@@ -28,7 +28,7 @@ class FixedAgent:
             ToolCallRecord(name=c["name"], arguments=dict(c.get("arguments", {})), result=c.get("result"))
             for c in self.tool_calls
         ]
-        return Trace(output=self.output, tool_calls=list(records), metadata=dict(self.metadata))
+        return Trace(output=self.output, tool_calls=list(records), metadata=dict(self.metadata), turns=1)
 
 
 def fixed_agent(

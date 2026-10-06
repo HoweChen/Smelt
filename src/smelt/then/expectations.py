@@ -125,6 +125,105 @@ def no_tool_call(name: str, *, threshold: float = 1.0) -> NoToolCallExpectation:
 
 
 # ---------------------------------------------------------------------------
+# Budgets (operating envelopes): turns / tool calls / wall time
+#
+# Deterministic gates on the trace — no LLM involved. Quality can pass while
+# the run is unaffordable ("budget burner"); these catch that. Binary scoring:
+# within budget 1.0, exceeded 0.0.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TurnsUsedExpectation:
+    """Assert the agent finished within a turn budget (agent loop iterations)."""
+
+    max_turns: int
+    threshold: float = 1.0
+
+    @property
+    def name(self) -> str:
+        return f"turns_used(max={self.max_turns})"
+
+    def evaluate(self, trace: Trace) -> ExpectationResult:
+        if trace.turns <= self.max_turns:
+            return _result(self.name, 1.0, self.threshold, f"{trace.turns} turn(s) within budget {self.max_turns}")
+        return _result(
+            self.name, 0.0, self.threshold,
+            f"used {trace.turns} turns, over budget {self.max_turns}",
+        )
+
+
+@dataclass(frozen=True)
+class ToolBudgetExpectation:
+    """Assert a tool (or all tools together) was called at most ``max_calls`` times."""
+
+    tool_name: str | None = None
+    max_calls: int = 0
+    threshold: float = 1.0
+
+    @property
+    def name(self) -> str:
+        target = self.tool_name or "*"
+        return f"tool_budget({target}, max={self.max_calls})"
+
+    def evaluate(self, trace: Trace) -> ExpectationResult:
+        calls = trace.calls_named(self.tool_name) if self.tool_name else trace.tool_calls
+        count = len(calls)
+        if count <= self.max_calls:
+            return _result(self.name, 1.0, self.threshold, f"{count} call(s) within budget {self.max_calls}")
+        return _result(
+            self.name, 0.0, self.threshold,
+            f"{count} call(s), over budget {self.max_calls}",
+        )
+
+
+@dataclass(frozen=True)
+class WallTimeExpectation:
+    """Assert the agent run finished within a wall-clock budget (seconds)."""
+
+    max_seconds: float
+    threshold: float = 1.0
+
+    @property
+    def name(self) -> str:
+        return f"wall_time(max_seconds={self.max_seconds})"
+
+    def evaluate(self, trace: Trace) -> ExpectationResult:
+        if trace.wall_time_s is None:
+            return _result(self.name, 1.0, self.threshold, "no timing recorded on the trace")
+        if trace.wall_time_s <= self.max_seconds:
+            return _result(
+                self.name, 1.0, self.threshold,
+                f"{trace.wall_time_s:.2f}s within budget {self.max_seconds}s",
+            )
+        return _result(
+            self.name, 0.0, self.threshold,
+            f"took {trace.wall_time_s:.2f}s, over budget {self.max_seconds}s",
+        )
+
+
+def turns_used(*, max: int, threshold: float = 1.0) -> TurnsUsedExpectation:
+    """then(turns_used(max=5)) — fail when the agent needs more than 5 turns."""
+    if max < 0:
+        raise ValueError(f"max must be >= 0, got {max}")
+    return TurnsUsedExpectation(max_turns=max, threshold=threshold)
+
+
+def tool_budget(name: str | None = None, *, max: int, threshold: float = 1.0) -> ToolBudgetExpectation:
+    """then(tool_budget("run_command", max=2)) — per-tool or total (no name) call cap."""
+    if max < 0:
+        raise ValueError(f"max must be >= 0, got {max}")
+    return ToolBudgetExpectation(tool_name=name, max_calls=max, threshold=threshold)
+
+
+def wall_time(*, max_seconds: float, threshold: float = 1.0) -> WallTimeExpectation:
+    """then(wall_time(max_seconds=10)) — wall-clock budget for the agent run."""
+    if max_seconds < 0:
+        raise ValueError(f"max_seconds must be >= 0, got {max_seconds}")
+    return WallTimeExpectation(max_seconds=max_seconds, threshold=threshold)
+
+
+# ---------------------------------------------------------------------------
 # Strings
 # ---------------------------------------------------------------------------
 

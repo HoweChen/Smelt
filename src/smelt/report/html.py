@@ -13,6 +13,38 @@ def _esc(value: object) -> str:
     return html.escape(str(value))
 
 
+BASE_CSS = """
+  :root { --pass:#16a34a; --fail:#dc2626; --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg);
+         color:var(--fg); margin:0; padding:2rem; line-height:1.5; }
+  .container { max-width:960px; margin:0 auto; }
+  header { display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem; }
+  h1 { font-size:1.4rem; margin:0; }
+  h2 { font-size:1.05rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .badge { padding:.25rem .9rem; border-radius:9999px; font-weight:700; color:#fff; }
+  .badge.PASS { background:var(--pass); } .badge.FAIL { background:var(--fail); }
+  .meta { color:var(--muted); font-size:.85rem; margin-bottom:1.5rem; }
+  .meta code { color:var(--fg); }
+  section { background:var(--card); border-radius:.6rem; padding:1.1rem 1.3rem; margin-bottom:1.2rem; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  th, td { text-align:left; padding:.45rem .6rem; border-bottom:1px solid #334155; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .bar { display:inline-block; width:140px; height:8px; background:#334155; border-radius:4px;
+         overflow:hidden; margin-right:.5rem; vertical-align:middle; }
+  .bar-fill { height:100%; } .bar-fill.pass { background:var(--pass); } .bar-fill.fail { background:var(--fail); }
+  .pass { color:var(--pass); } .fail { color:var(--fail); }
+  .num { font-variant-numeric:tabular-nums; }
+  .msg { color:var(--muted); font-size:.85rem; }
+  pre { background:#0b1220; padding:.8rem 1rem; border-radius:.4rem; overflow-x:auto;
+         white-space:pre-wrap; word-break:break-word; }
+  pre.error { border-left:3px solid var(--fail); }
+  .muted { color:var(--muted); }
+  footer { color:var(--muted); font-size:.8rem; text-align:center; margin-top:2rem; }
+  a { color:#60a5fa; text-decoration:none; } a:hover { text-decoration:underline; }
+"""
+
+
 def _score_class(score: float, threshold: float) -> str:
     return "pass" if score >= threshold else "fail"
 
@@ -84,35 +116,7 @@ def render_html(result: CaseResult) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Smelt report — {_esc(result.case_name)}</title>
-<style>
-  :root {{ --pass:#16a34a; --fail:#dc2626; --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; }}
-  * {{ box-sizing:border-box; }}
-  body {{ font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; background:var(--bg);
-         color:var(--fg); margin:0; padding:2rem; line-height:1.5; }}
-  .container {{ max-width:960px; margin:0 auto; }}
-  header {{ display:flex; align-items:center; gap:1rem; margin-bottom:1.5rem; }}
-  h1 {{ font-size:1.4rem; margin:0; }}
-  h2 {{ font-size:1.05rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }}
-  .badge {{ padding:.25rem .9rem; border-radius:9999px; font-weight:700; color:#fff; }}
-  .badge.PASS {{ background:var(--pass); }} .badge.FAIL {{ background:var(--fail); }}
-  .meta {{ color:var(--muted); font-size:.85rem; margin-bottom:1.5rem; }}
-  .meta code {{ color:var(--fg); }}
-  section {{ background:var(--card); border-radius:.6rem; padding:1.1rem 1.3rem; margin-bottom:1.2rem; }}
-  table {{ width:100%; border-collapse:collapse; font-size:.92rem; }}
-  th, td {{ text-align:left; padding:.45rem .6rem; border-bottom:1px solid #334155; vertical-align:top; }}
-  th {{ color:var(--muted); font-weight:600; }}
-  .bar {{ display:inline-block; width:140px; height:8px; background:#334155; border-radius:4px;
-          overflow:hidden; margin-right:.5rem; vertical-align:middle; }}
-  .bar-fill {{ height:100%; }} .bar-fill.pass {{ background:var(--pass); }} .bar-fill.fail {{ background:var(--fail); }}
-  .pass {{ color:var(--pass); }} .fail {{ color:var(--fail); }}
-  .num {{ font-variant-numeric:tabular-nums; }}
-  .msg {{ color:var(--muted); font-size:.85rem; }}
-  pre {{ background:#0b1220; padding:.8rem 1rem; border-radius:.4rem; overflow-x:auto;
-         white-space:pre-wrap; word-break:break-word; }}
-  pre.error {{ border-left:3px solid var(--fail); }}
-  .muted {{ color:var(--muted); }}
-  footer {{ color:var(--muted); font-size:.8rem; text-align:center; margin-top:2rem; }}
-</style>
+<style>{BASE_CSS}</style>
 </head>
 <body>
 <div class="container">

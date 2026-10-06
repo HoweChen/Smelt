@@ -51,6 +51,7 @@ from smelt.given import (
     smelt_agent,
     tools,
 )
+from smelt.report.suite import Suite, SuiteResult, suite
 from smelt.results import CaseResult, ExpectationResult
 from smelt.runner import run_case
 from smelt.then import (
@@ -90,6 +91,8 @@ __all__ = [
     "SmeltAgent",
     "SmeltCase",
     "SmeltConfig",
+    "Suite",
+    "SuiteResult",
     "TextInput",
     "Tool",
     "ToolCall",
@@ -115,6 +118,7 @@ __all__ = [
     "run_case",
     "skill",
     "smelt_agent",
+    "suite",
     "text",
     "text_similar",
     "tool",

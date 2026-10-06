@@ -217,6 +217,28 @@ new_case("commit").given(...).when(...).then(...).report_cli()
   tool-call trace
 - Invalid cases (missing agent/trigger) produce an error report instead of raising
 
+## Suite reports (multi-case overview)
+
+Run a whole battery and get an `index.html` overview — pass rate, score
+distribution, per-case pages linked:
+
+```python
+from smelt import suite
+
+result = (
+    suite("commit-skill v1.2")
+    .add(case_a, case_b, case_c)
+    .report()   # .smelt/reports/suites/commit-skill-v1-2-<ts>/index.html + one page per case
+)
+result.assert_passed()
+
+suite("commit-skill v1.2").add(...).report_cli()  # compact terminal summary
+```
+
+Layout: `suites/<slug>-<timestamp>/index.html` with `<case>.html` siblings, plus a
+`suites/<slug>-latest/` copy that always tracks the newest run — history is kept
+per timestamp, ideal as a CI artifact.
+
 ## Running
 
 ```bash
@@ -266,7 +288,7 @@ src/smelt/
 ├── then/             # the assertion side: tool_call / text_similar / json_output / llm_judge / ...
 ├── case.py           # SmeltCase: fluent immutable given/when/then
 ├── runner.py         # guardrails → materialize context → run agent → evaluate
-├── report/           # per-case reports: HTML under .smelt/ and terminal text
+├── report/           # reports: per-case HTML/text + suite overview (index.html)
 ├── evaluate.py       # evaluate_skill: behavior + writing + lint review and reports
 ├── config.py         # global default thresholds (smelt.configure)
 ├── tools.py          # @tool: signature annotations → JSON Schema

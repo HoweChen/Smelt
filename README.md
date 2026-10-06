@@ -191,6 +191,32 @@ smelt evaluate skills/commit --cases cases.py \
     --output reports/commit.md --fail-under 80
 ```
 
+## Per-case reports (.report / .report_cli)
+
+Every case chain can end in a report:
+
+```python
+result = (
+    new_case("commit")
+    .given(smelt_agent(...))
+    .when(text("commit my changes"))
+    .then(tool_call("run_command"))
+    .report()        # writes a self-contained HTML report to .smelt/reports/
+)
+result.report_path  # ".smelt/reports/commit-20261006-091500.html" (+ commit-latest.html)
+result.assert_passed()  # still pytest-compatible
+
+# or straight to the terminal:
+new_case("commit").given(...).when(...).then(...).report_cli()
+```
+
+- `.report(output_dir=..., quiet=...)` — dark, self-contained HTML: status badge,
+  per-expectation score bars, tool-call trace, final output; a `<slug>-latest.html`
+  pointer always tracks the newest run
+- `.report_cli(quiet=...)` — formatted terminal report with score bars and the
+  tool-call trace
+- Invalid cases (missing agent/trigger) produce an error report instead of raising
+
 ## Running
 
 ```bash
@@ -240,6 +266,7 @@ src/smelt/
 ├── then/             # the assertion side: tool_call / text_similar / json_output / llm_judge / ...
 ├── case.py           # SmeltCase: fluent immutable given/when/then
 ├── runner.py         # guardrails → materialize context → run agent → evaluate
+├── report/           # per-case reports: HTML under .smelt/ and terminal text
 ├── evaluate.py       # evaluate_skill: behavior + writing + lint review and reports
 ├── config.py         # global default thresholds (smelt.configure)
 ├── tools.py          # @tool: signature annotations → JSON Schema

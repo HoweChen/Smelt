@@ -35,6 +35,7 @@ class CaseResult:
     trace: Any = None  # smelt.trace.Trace; may be None on error
     error: str | None = None
     workspace: str | None = None
+    report_path: str | None = None  # set when the case ran via .report()
 
     @property
     def score(self) -> float:

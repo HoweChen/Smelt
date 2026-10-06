@@ -76,6 +76,31 @@ class SmeltCase:
 
         return run_case(self)
 
+    # -- report --------------------------------------------------------------
+    def report(self, *, output_dir: str | None = None, quiet: bool = False) -> CaseResult:
+        """Run the case, write an HTML report under .smelt/reports/, return the result.
+
+        The report path lands on ``result.report_path``; ``result.assert_passed()``
+        still works for pytest.
+        """
+        from smelt.report import write_html_report
+
+        result = self.run()
+        path = write_html_report(result, output_dir or ".smelt/reports")
+        result.report_path = str(path)
+        if not quiet:
+            print(f"report written to {path}")
+        return result
+
+    def report_cli(self, *, quiet: bool = False) -> CaseResult:
+        """Run the case and print a formatted terminal report; return the result."""
+        from smelt.report import render_text
+
+        result = self.run()
+        if not quiet:
+            print(render_text(result))
+        return result
+
 
 def new_case(name: str = "unnamed", *, keep_workspace: bool = False) -> SmeltCase:
     """Start a new case definition."""

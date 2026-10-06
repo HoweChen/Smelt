@@ -402,6 +402,9 @@ uv run pytest
 # CLI: execute case files directly (module-level new_case(...) or cases = [...])
 uv run smelt run examples/cases/demo_cases.py -v
 
+# budget assertions demo: efficient vs wasteful agents (the wasteful case fails on purpose)
+uv run smelt run examples/cases/budget_cases.py -v
+
 # static lint: structure / trigger words / asset references for SKILL.md
 uv run smelt validate examples --fail-under 80
 ```

@@ -60,10 +60,85 @@ def _to_langchain(messages: list[dict[str, Any]]) -> list[BaseMessage]:
 
 
 class LangChainLLM:
-    """Adapt a langchain BaseChatModel into an LLMClient."""
+    """Adapt a langchain BaseChatModel into an LLMClient.
+
+    ``from_provider`` / ``from_env`` construct the chat model for you —
+    provider mode, optional base_url (provider default when omitted), and
+    api_key (explicit arg > SMELT_API_KEY from .env > langchain's own env
+    default).
+    """
 
     def __init__(self, chat_model: Any) -> None:
         self._model = chat_model
+
+    @classmethod
+    def from_provider(
+        cls,
+        provider: str,
+        model: str,
+        *,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        **kwargs: Any,
+    ) -> LangChainLLM:
+        """Build a chat model for "openai" or "anthropic" in base_url mode.
+
+        ``base_url`` / ``api_key`` fall back to SMELT_BASE_URL / SMELT_API_KEY
+        (auto-loaded from the configured .env); when both are unset the
+        provider's default endpoint and langchain's own env keys apply.
+        """
+        import os
+
+        from smelt.env import _auto_load
+
+        _auto_load()
+        api_key = api_key or os.environ.get("SMELT_API_KEY")
+        base_url = base_url or os.environ.get("SMELT_BASE_URL")
+
+        params: dict[str, Any] = {"model": model, **kwargs}
+        if base_url is not None:
+            params["base_url"] = base_url
+        if api_key is not None:
+            params["api_key"] = api_key
+
+        if provider == "openai":
+            try:
+                from langchain_openai import ChatOpenAI
+            except ImportError as e:
+                raise ImportError(
+                    "provider='openai' requires langchain-openai: uv add 'smelt[langchain-openai]'"
+                ) from e
+            return cls(ChatOpenAI(**params))
+        if provider == "anthropic":
+            try:
+                from langchain_anthropic import ChatAnthropic
+            except ImportError as e:
+                raise ImportError(
+                    "provider='anthropic' requires langchain-anthropic: uv add 'smelt[langchain-anthropic]'"
+                ) from e
+            return cls(ChatAnthropic(**params))
+        raise ValueError(f"unknown provider {provider!r}: expected 'openai' or 'anthropic'")
+
+    @classmethod
+    def from_env(cls, model: str, **kwargs: Any) -> LangChainLLM:
+        """Build from the configured .env / shell env — three keys only::
+
+            SMELT_LLM_PROVIDER=openai        # or anthropic (default: openai)
+            SMELT_BASE_URL=https://...       # optional; omitted → provider default
+            SMELT_API_KEY=sk-...
+        """
+        import os
+
+        from smelt.env import _auto_load
+
+        _auto_load()
+        return cls.from_provider(
+            os.environ.get("SMELT_LLM_PROVIDER", "openai"),
+            model,
+            base_url=os.environ.get("SMELT_BASE_URL"),
+            api_key=os.environ.get("SMELT_API_KEY"),
+            **kwargs,
+        )
 
     def complete(self, messages: list[dict[str, Any]], tools: Sequence[Tool]) -> LLMResponse:
         model = self._model

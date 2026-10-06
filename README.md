@@ -266,6 +266,25 @@ llm = LangChainLLM(ChatOpenAI(model="kimi-k2", base_url="https://api.moonshot.cn
 # identical to ScriptedLLM / OpenAIChatClient: feed smelt_agent, or use as judge
 ```
 
+### Provider factory (openai / anthropic, base_url mode)
+
+Or let smelt construct the chat model — provider mode, optional base_url
+(provider default when omitted), api_key; three config keys in your `.env`:
+
+```dotenv
+SMELT_LLM_PROVIDER=anthropic        # or openai (default)
+SMELT_BASE_URL=https://proxy...     # optional; omitted → provider default endpoint
+SMELT_API_KEY=sk-...
+```
+
+```python
+llm = LangChainLLM.from_env("claude-sonnet-4-5")
+# or explicitly (explicit args win over the env file):
+llm = LangChainLLM.from_provider("openai", "kimi-k2", base_url="https://api.moonshot.cn/v1")
+```
+
+Requires `smelt[langchain-openai]` or `smelt[langchain-anthropic]`.
+
 ## Comprehensive evaluation & reports (evaluate)
 
 Produce a full evaluation report for a skill: **behavior score** (then-case

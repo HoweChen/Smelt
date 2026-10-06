@@ -22,6 +22,8 @@ dev = [
 openai = ["openai>=1.0"]
 json = ["jsonschema>=4.0"]
 langchain = ["langchain-core>=0.3"]
+langchain-openai = ["langchain-core>=0.3", "langchain-openai>=0.2"]
+langchain-anthropic = ["langchain-core>=0.3", "langchain-anthropic>=0.2"]
 
 [project.scripts]
 smelt = "smelt.cli:main"

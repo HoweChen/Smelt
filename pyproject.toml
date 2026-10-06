@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "smelt"
-version = "0.3.0"
+version = "0.3.1"
 description = "Smelt — verify agent-skill behavior with a fluent given/when/then DSL: LLM tool loops, LLM-as-judge, and scored evaluation reports"
 readme = "README.md"
 requires-python = ">=3.11"

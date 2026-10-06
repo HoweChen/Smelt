@@ -3,6 +3,19 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.1] - 2026-10-06
+
+### Added
+
+- **LangChain provider factory** — `LangChainLLM.from_provider(provider, model, base_url=, api_key=)`
+  supports `openai` and `anthropic` in base_url mode; `base_url` omitted →
+  provider default endpoint; `api_key` falls back to `SMELT_API_KEY`
+  (auto-loaded .env), then langchain's own env defaults.
+  `LangChainLLM.from_env(model)` reads the three-key config file:
+  `SMELT_LLM_PROVIDER` / `SMELT_BASE_URL` / `SMELT_API_KEY`.
+- New extras: `smelt[langchain-openai]` / `smelt[langchain-anthropic]`;
+  missing packages raise an ImportError naming the extra to install.
+
 ## [0.3.0] - 2026-10-06
 
 Statistical rigor release: scores are now trustworthy enough to compare skill

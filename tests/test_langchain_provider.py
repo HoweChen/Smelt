@@ -108,6 +108,26 @@ def test_from_provider_missing_package_message(monkeypatch):
         LangChainLLM.from_provider("anthropic", "claude-sonnet-4-5", api_key="sk-y")
 
 
+def test_from_provider_openai_missing_package_message(monkeypatch):
+    monkeypatch.setitem(sys.modules, "langchain_openai", None)  # import fails
+    with pytest.raises(ImportError, match="langchain-openai"):
+        LangChainLLM.from_provider("openai", "gpt-5", api_key="sk-x")
+
+
+def test_from_provider_passes_extra_kwargs_through(monkeypatch):
+    captured = _fake_provider_modules(monkeypatch, {})
+    LangChainLLM.from_provider("openai", "kimi-k2", api_key="sk-x", temperature=0.7, max_tokens=512)
+    assert captured["openai"]["temperature"] == 0.7
+    assert captured["openai"]["max_tokens"] == 512
+
+
+def test_from_env_passes_extra_kwargs_through(monkeypatch):
+    monkeypatch.setenv("SMELT_LLM_PROVIDER", "anthropic")
+    captured = _fake_provider_modules(monkeypatch, {})
+    LangChainLLM.from_env("claude-sonnet-4-5", temperature=0.0)
+    assert captured["anthropic"]["temperature"] == 0.0
+
+
 def test_from_env_reads_three_config_keys(monkeypatch):
     monkeypatch.setenv("SMELT_LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("SMELT_BASE_URL", "https://proxy.example.com")

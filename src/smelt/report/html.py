@@ -58,12 +58,13 @@ def render_html(result: CaseResult) -> str:
     for e in result.expectations:
         pct = round(e.score * 100, 1)
         cls = _score_class(e.score, e.threshold)
+        e_spread = f" ±{e.score_std:.2f} · {e.runs} runs" if e.runs > 1 else ""
         rows.append(f"""
       <tr>
         <td><code>{_esc(e.name)}</code></td>
         <td>
           <div class="bar"><div class="bar-fill {cls}" style="width:{pct}%"></div></div>
-          <span class="num">{e.score:.2f}</span> / threshold {e.threshold:.2f}
+          <span class="num">{e.score:.2f}</span> / threshold {e.threshold:.2f}{e_spread}
         </td>
         <td class="{cls}">{'✔' if e.passed else '✘'}</td>
         <td class="msg">{_esc(e.message)}</td>
@@ -123,7 +124,7 @@ def render_html(result: CaseResult) -> str:
   <header>
     <span class="badge {status}">{status}</span>
     <h1>{_esc(result.case_name)}</h1>
-    <span>score {result.score:.2f}</span>
+    <span>score {result.score:.2f}{f" ±{result.score_std:.2f} · {result.runs} runs" if result.runs > 1 else ""}{f" · pass^{result.runs} {'✔' if result.pass_hat else '✘'}" if result.pass_hat is not None else ""}</span>
   </header>
   <div class="meta">
     workspace <code>{_esc(result.workspace or '-')}</code> · generated {generated}

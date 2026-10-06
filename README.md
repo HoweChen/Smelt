@@ -69,6 +69,31 @@ import smelt
 smelt.configure(text_similar_threshold=0.7, llm_judge_threshold=0.75)
 ```
 
+### .env and SMELT_* variables
+
+Smelt reads credentials and endpoints from a `.env` file — the location is
+specified in code (default `.env` in the working directory):
+
+```python
+import smelt
+
+smelt.configure(env_file="config/smelt.env")  # or None to disable loading
+smelt.load_env()                              # apply now; otherwise auto-loaded on first use
+```
+
+```dotenv
+# config/smelt.env
+SMELT_API_KEY=sk-...
+SMELT_BASE_URL=https://api.moonshot.cn/v1
+SMELT_JUDGE_MODEL=kimi-k2
+```
+
+All variables carry the `SMELT_` prefix. `OpenAIChatClient` falls back to
+`SMELT_API_KEY` / `SMELT_BASE_URL` when the arguments are omitted (explicit
+arguments win), and `smelt evaluate` falls back to `SMELT_JUDGE_MODEL` when
+`--judge-model` is absent. Variables already present in the shell environment
+are never overridden by the file.
+
 ## given
 
 | helper | description |
@@ -98,6 +123,38 @@ smelt.configure(text_similar_threshold=0.7, llm_judge_threshold=0.75)
 
 Case score = mean of assertion scores; an assertion passes when `score >= threshold`.
 Custom assertions implement the `Expectation` protocol (`evaluate(trace) -> ExpectationResult`).
+
+## Repeated sampling (mean ± std)
+
+LLM agents are stochastic — a single run's score is noise, and noise can be
+larger than the difference between two skill versions. Repeat a case and the
+score becomes the mean across runs, with the spread (std) reported alongside:
+
+```python
+result = (
+    new_case("commit")
+    .given(smelt_agent("skills/commit", llm=real_llm, tools=[git_tool]))
+    .when(text("commit my changes"))
+    .then(tool_call("run_command"))
+    .repeat(3)          # or: .run(times=3)
+    .run()
+)
+result.score       # mean of 3 run scores (a crashed run counts as 0)
+result.score_std   # spread — large std means "result unstable, don't compare"
+result.run_scores  # per-run scores, e.g. [1.0, 0.5, 1.0]
+result.pass_hat    # pass^k reliability: True only if EVERY run passed
+```
+
+The mean flatters an agent that succeeds sometimes; pass^k (tau-bench's
+reliability metric) answers "can this skill be trusted every single time".
+Both are shown in reports: `0.67 ±0.47 (n=3)  pass^3 ✘` means "usually works,
+but not reliably" — a signal the mean alone would hide.
+
+Aggregation: case score = mean of per-run case scores; each expectation's
+score = mean across the runs that evaluated it; pass = mean >= threshold.
+Configuration errors (missing agent/trigger) never repeat; runtime errors
+count as 0 and are listed as run errors. HTML / terminal / markdown reports
+all show `±std · n=N` next to repeated scores.
 
 ## LLM clients
 
@@ -137,6 +194,42 @@ result = (
 )
 ```
 
+The judge sees the task input (the when-trigger) by default — grading an
+answer without seeing the question inflates scores and blurs version
+differences; `include_input=False` opts out. With `include_trace=True` the
+judge sees tool calls **including their results**, so it can tell whether the
+agent actually used a tool's output or hallucinated from memory. Keep the
+judge at temperature 0 (`OpenAIChatClient`'s default), and preferably a
+different model family than the agent under test (judges rate their own
+family's output higher).
+
+### Per-dimension judging
+
+For a fuller picture of *where* a skill is weak, grade independent dimensions
+— each in a **separate** judge call on a categorical 0|1|2 (fail/partial/pass)
+scale, averaged into the expectation score:
+
+```python
+.then(llm_judge(
+    judge_llm,
+    dimensions=[
+        "tool selection (right tool, or correctly none)",
+        "argument correctness (arguments semantically match the request)",
+        "result utilization (the answer actually uses what tools returned)",
+        "trajectory efficiency (no loops or redundant calls)",
+        "error recovery (recovers sensibly from tool errors)",
+    ],
+    threshold=0.7,
+    include_trace=True,  # dimensions like result utilization need the tool results
+))
+```
+
+One call per dimension prevents anchor bleed (a strong first dimension
+dragging the others up) and makes regressions attributable — the result's
+`details["dimensions"]` carries each dimension's level and evidence-based
+reason. Scoring rationale precedes the score in every judge prompt
+(reason-first judging), and all prompts state length neutrality explicitly.
+
 Judge parse failures, out-of-range scores, and call failures all score 0 safely
 with an explanatory message — they never crash the case.
 
@@ -174,16 +267,54 @@ report = (
     .with_writing(dimensions=[...])           # LLM writing review, custom dimensions (on by default)
     .with_suggestions(max_items=5)            # LLM improvement suggestions (on by default)
     .with_weights(behavior=0.5, writing=0.3, lint=0.2)  # adjustable weights
+    .with_times(3)                            # repeat count for behavior cases (see below)
     .run()
 )
 print(report.overall_score, report.grade)     # 89.5 'B'
 report.save("reports/commit.md")              # extension picks the format; .json → JSON
 ```
 
+**Behavior cases repeat automatically.** Without an explicit setting, each
+case runs 3 times and scores aggregate as mean ± std — that is what makes two
+skill versions comparable. Cases driven by deterministic backends
+(`fixed_agent`, `ScriptedLLM`) auto-degrade to a single run, so CI replay
+stays cheap. Precedence: `.with_times(n)` > per-case `.repeat(n)` > auto.
+The markdown/JSON reports carry `runs`, `run_scores` and `score_std` per case.
+
 Report sections: overview (overall/grade/parts) → behavior details (per-then
 score vs threshold) → static lint table → writing review table (dimension /
 score / comment) → prioritized suggestions. Without a judge, writing and
 suggestions degrade gracefully to "skipped" without blocking other parts.
+
+### Comparing skill versions (compare)
+
+`compare()` diffs two evaluations — SkillEvaluation objects, payload dicts, or
+saved `.json` reports — and tells you whether the numbers *mean* something:
+
+```python
+from smelt import compare
+
+diff = compare("reports/skill-v1.json", "reports/skill-v2.json")
+print(diff.to_markdown())       # per-case table: baseline / candidate / Δ / verdict
+diff.assert_no_regression()     # CI gate: raises on any regressed case
+```
+
+A case's score change is **significant only when |Δ| exceeds the noise band**
+`max(min_delta, 2σ)` — σ combines both versions' per-run spreads, so a 3-point
+"bump" inside the band is reported as `unchanged`, not progress. Independently
+of the mean, a **pass^k drop (True → False) is flagged as a reliability
+regression** — the version still scores fine on average but no longer works
+every time. Verdicts: `improved` / `regressed` / `unchanged` / `added` /
+`removed`; a candidate-side runtime error on an existing case is a regression.
+
+CLI equivalent (exit 1 on regression — drop straight into CI):
+
+```bash
+smelt evaluate skills/commit --cases cases.py --output reports/v1.json ...
+# ...edit the skill...
+smelt evaluate skills/commit --cases cases.py --output reports/v2.json ...
+smelt compare reports/v1.json reports/v2.json --min-delta 0.05
+```
 
 CLI equivalent:
 

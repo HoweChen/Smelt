@@ -33,6 +33,7 @@ class SmeltCase:
     trigger: CaseInput | None = None
     expectations: tuple[Expectation, ...] = ()
     keep_workspace: bool = False  # True keeps the workspace under .smelt/ for debugging
+    times: int = 1  # repeated sampling: how many times .run() executes the case
 
     # -- given ---------------------------------------------------------------
     def given(self, item) -> SmeltCase:
@@ -70,11 +71,26 @@ class SmeltCase:
         return replace(self, expectations=self.expectations + tuple(expectations))
 
     # -- run -----------------------------------------------------------------
-    def run(self) -> CaseResult:
-        """Execute the case and return a CaseResult; use .assert_passed() under pytest."""
+    def repeat(self, times: int) -> SmeltCase:
+        """Sample the case ``times`` times per run; scores aggregate as mean ± std.
+
+        LLM agents are stochastic — a single run's score is noise. Repeating
+        (3 is a good default for real models) makes scores comparable across
+        skill versions; deterministic agents (fixed_agent / ScriptedLLM) gain
+        nothing from it.
+        """
+        if times < 1:
+            raise ValueError(f"repeat times must be >= 1, got {times}")
+        return replace(self, times=times)
+
+    def run(self, times: int | None = None) -> CaseResult:
+        """Execute the case and return a CaseResult; use .assert_passed() under pytest.
+
+        ``times`` overrides the repeat count set via .repeat() for this run.
+        """
         from smelt.runner import run_case
 
-        return run_case(self)
+        return run_case(self, times=times)
 
     # -- report --------------------------------------------------------------
     def report(self, *, output_dir: str | None = None, quiet: bool = False) -> CaseResult:

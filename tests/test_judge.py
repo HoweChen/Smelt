@@ -82,12 +82,124 @@ def test_judge_in_full_case_pipeline():
     assert result.passed, result.summary()
 
 
+def test_judge_receives_task_input_by_default():
+    judge = _judge_with('{"score": 1.0, "reason": "ok"}')
+    trace = Trace(output="Paris", messages=[
+        {"role": "system", "content": "you are a geography skill"},
+        {"role": "user", "content": "what is the capital of France?"},
+    ])
+    llm_judge(judge, criteria="answer must be correct").evaluate(trace)
+    prompt = judge.calls[0][0]["content"]
+    assert "what is the capital of France?" in prompt
+    assert "hidden from the judge" not in prompt
+
+
+def test_judge_include_input_false_hides_input():
+    judge = _judge_with('{"score": 1.0}')
+    trace = Trace(output="Paris", messages=[{"role": "user", "content": "secret question"}])
+    llm_judge(judge, criteria="x", include_input=False).evaluate(trace)
+    prompt = judge.calls[0][0]["content"]
+    assert "secret question" not in prompt
+    assert "hidden from the judge" in prompt
+
+
+def test_judge_without_recorded_input_degrades_gracefully():
+    judge = _judge_with('{"score": 1.0}')
+    llm_judge(judge, criteria="x").evaluate(Trace(output="answer"))
+    prompt = judge.calls[0][0]["content"]
+    assert "no task input recorded" in prompt
+
+
 def test_render_trace_calls_empty_and_error():
     assert _render_trace_calls(Trace()) == "(no tool calls)"
     trace = Trace(tool_calls=[ToolCallRecord(name="t", arguments={"a": 1}, error="boom")])
     assert "error: boom" in _render_trace_calls(trace)
 
 
+def test_render_trace_calls_includes_tool_results():
+    # groundedness: the judge must see what the tool actually returned
+    trace = Trace(tool_calls=[
+        ToolCallRecord(name="get_balance", arguments={"user": "alice"}, result={"balance_cents": 12400}),
+    ])
+    rendered = _render_trace_calls(trace)
+    assert "12400" in rendered
+
+
+def test_render_trace_calls_truncates_long_results():
+    trace = Trace(tool_calls=[ToolCallRecord(name="read_file", arguments={}, result="x" * 5000)])
+    rendered = _render_trace_calls(trace)
+    assert len(rendered) < 1000
+    assert "truncated" in rendered
+
+
 def test_judge_prompt_template_is_valid_format_string():
     rendered = JUDGE_PROMPT.format(input_block="i", output_block="o", criteria_block="c")
-    assert '{"score"' in rendered and "c" in rendered
+    assert '"reason"' in rendered and '"score"' in rendered and "c" in rendered
+
+
+# ---------------------------------------------------------------------------
+# Multi-dimensional judging: one judge call per dimension, categorical scale
+# ---------------------------------------------------------------------------
+
+
+def test_judge_dimensions_scored_in_separate_calls():
+    judge = ScriptedLLM([
+        '{"reason": "tool result used correctly", "score": 2}',
+        '{"reason": "no recovery after the error", "score": 0}',
+    ])
+    result = llm_judge(
+        judge,
+        dimensions=["result utilization (did the agent use tool output)", "error recovery"],
+        threshold=0.4,
+    ).evaluate(_trace("answer"))
+    # each dimension is judged in its own call (no anchor bleed between dimensions)
+    assert len(judge.calls) == 2
+    assert "result utilization" in judge.calls[0][0]["content"]
+    assert "error recovery" in judge.calls[1][0]["content"]
+    assert "result utilization" not in judge.calls[1][0]["content"]
+    # categorical 0/1/2 mapped to 0.0/0.5/1.0, then averaged
+    assert result.score == pytest.approx(0.5)
+    assert result.passed
+    dims = result.details["dimensions"]
+    assert [(d["name"], d["score"]) for d in dims] == [
+        ("result utilization (did the agent use tool output)", 1.0),
+        ("error recovery", 0.0),
+    ]
+    assert dims[0]["reason"] == "tool result used correctly"
+
+
+def test_judge_dimensions_perfect_score_passes_high_threshold():
+    judge = ScriptedLLM(['{"reason": "ok", "score": 2}', '{"reason": "ok", "score": 2}'])
+    result = llm_judge(judge, dimensions=["a", "b"], threshold=0.9).evaluate(_trace())
+    assert result.score == 1.0 and result.passed
+
+
+def test_judge_dimension_invalid_level_scores_zero():
+    judge = ScriptedLLM(['{"reason": "confused", "score": 5}', '{"reason": "ok", "score": 1}'])
+    result = llm_judge(judge, dimensions=["a", "b"], threshold=0.9).evaluate(_trace())
+    assert result.details["dimensions"][0]["score"] == 0.0
+    assert "0|1|2" in result.details["dimensions"][0]["reason"] or "invalid" in result.details["dimensions"][0]["reason"]
+    assert result.score == pytest.approx(0.25)  # (0.0 + 0.5) / 2
+
+
+def test_judge_dimension_call_failure_scores_zero():
+    class BoomLLM:
+        def complete(self, messages, tools):
+            raise RuntimeError("api down")
+
+    result = llm_judge(BoomLLM(), dimensions=["a", "b"]).evaluate(_trace())
+    assert result.score == 0.0
+    assert all("api down" in d["reason"] for d in result.details["dimensions"])
+
+
+def test_judge_requires_criteria_reference_or_dimensions():
+    with pytest.raises(ValueError, match="at least one"):
+        LLMJudgeExpectation(judge=_judge_with("{}"))
+
+
+def test_judge_prompt_reason_before_score_and_length_neutral():
+    prompt = JUDGE_PROMPT.format(input_block="i", output_block="o", criteria_block="c")
+    # chain-of-thought: justification before the numeric verdict
+    assert prompt.index('"reason"') < prompt.index('"score"')
+    # verbosity bias: conciseness must not be penalized
+    assert "concise" in prompt

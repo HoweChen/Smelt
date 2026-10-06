@@ -26,14 +26,20 @@ from pathlib import Path
 from typing import Any
 
 from smelt.case import SmeltCase
-from smelt.given.agents.llm import LLMClient
-from smelt.given.agents.smelt import smelt_agent
+from smelt.given.agents.fixed import FixedAgent
+from smelt.given.agents.llm import LLMClient, ScriptedLLM
+from smelt.given.agents.smelt import SmeltAgent, smelt_agent
+from smelt.given.fragments import LLMSpec
 from smelt.lint.checks import run_checks
 from smelt.lint.loader import load_skill
 from smelt.lint.scorer import build_report, grade_of
 from smelt.results import CaseResult
 from smelt.then.expectations import _extract_json
 from smelt.tools import Tool
+
+# Default repeat count for stochastic agents (real LLMs). Deterministic
+# backends (fixed_agent / ScriptedLLM) auto-degrade to a single run.
+DEFAULT_TIMES = 3
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -129,6 +135,11 @@ class SkillEvaluation:
                     "score": r.score,
                     "passed": r.passed,
                     "error": r.error,
+                    "runs": r.runs,
+                    "run_scores": r.run_scores,
+                    "run_passed": r.run_passed,
+                    "pass_hat": r.pass_hat,
+                    "score_std": r.score_std,
                     "expectations": [
                         {
                             "name": e.name,
@@ -136,6 +147,8 @@ class SkillEvaluation:
                             "threshold": e.threshold,
                             "passed": e.passed,
                             "message": e.message,
+                            "runs": e.runs,
+                            "score_std": e.score_std,
                         }
                         for e in r.expectations
                     ],
@@ -201,13 +214,19 @@ class SkillEvaluation:
             lines += ["## Behavior Tests", ""]
             for r in self.behavior_results:
                 mark = "✅" if r.passed else "❌"
-                lines.append(f"### {mark} {r.case_name} ({r.score * 100:.0f} pts)")
+                spread = f" · n={r.runs} ±{r.score_std * 100:.0f}" if r.runs > 1 else ""
+                if r.pass_hat is not None:
+                    spread += f" · pass^{r.runs} {'✔' if r.pass_hat else '✘'}"
+                lines.append(f"### {mark} {r.case_name} ({r.score * 100:.0f} pts{spread})")
                 if r.error:
                     lines.append(f"- Runtime error: {r.error}")
+                for err in r.run_errors:
+                    lines.append(f"- Run error (counted as 0): {err}")
                 for e in r.expectations:
                     icon = "✔" if e.passed else "✘"
                     msg = f" — {e.message}" if e.message else ""
-                    lines.append(f"- {icon} `{e.name}` {e.score:.2f} (threshold {e.threshold:.2f}){msg}")
+                    e_spread = f" ±{e.score_std:.2f}" if e.runs > 1 else ""
+                    lines.append(f"- {icon} `{e.name}` {e.score:.2f}{e_spread} (threshold {e.threshold:.2f}){msg}")
                 lines.append("")
 
         if self.lint_report is not None:
@@ -377,6 +396,7 @@ class SkillEvaluationBuilder:
     suggestions_enabled: bool = True
     suggestions_max: int = 5
     weight_map: dict[str, float] = field(default_factory=lambda: {"behavior": 0.5, "writing": 0.3, "lint": 0.2})
+    times: int | None = None  # explicit repeat count; None = auto (3 for stochastic agents, 1 for deterministic)
 
     def with_cases(self, *cases: SmeltCase) -> SkillEvaluationBuilder:
         """Attach behavior cases. Cases without an agent auto-bind the skill under
@@ -403,6 +423,16 @@ class SkillEvaluationBuilder:
                 raise ValueError(f"weight {name} must not be negative")
         return replace(self, weight_map={"behavior": behavior, "writing": writing, "lint": lint})
 
+    def with_times(self, n: int) -> SkillEvaluationBuilder:
+        """Run every behavior case ``n`` times and aggregate mean ± std.
+
+        Overrides per-case .repeat() counts and the auto default (3 for
+        stochastic agents, 1 for deterministic ones).
+        """
+        if n < 1:
+            raise ValueError(f"times must be >= 1, got {n}")
+        return replace(self, times=n)
+
     def run(self) -> SkillEvaluation:
         doc = load_skill(self.skill_path)
         evaluation = SkillEvaluation(
@@ -412,7 +442,9 @@ class SkillEvaluationBuilder:
         )
 
         if self.cases:
-            evaluation.behavior_results = [self._bind(case).run() for case in self.cases]
+            evaluation.behavior_results = [
+                self._bind(case).run(times=self._times_for(case)) for case in self.cases
+            ]
 
         if self.lint_enabled:
             evaluation.lint_report = build_report(doc, run_checks(doc))
@@ -450,6 +482,30 @@ class SkillEvaluationBuilder:
         if llm is None:
             raise ValueError(f"case {case.name!r} has no agent, and no agent_llm / judge was provided for auto-binding")
         return case.given(smelt_agent(self.skill_path, llm=llm, tools=self.tools))
+
+    def _times_for(self, case: SmeltCase) -> int:
+        """Effective repeat count: explicit builder setting > per-case .repeat() > auto."""
+        if self.times is not None:
+            return self.times
+        if case.times != 1:
+            return case.times
+        fallback_llm = self.agent_llm or self.judge
+        return 1 if _is_deterministic(case, fallback_llm) else DEFAULT_TIMES
+
+
+def _is_deterministic(case: SmeltCase, fallback_llm: LLMClient | None) -> bool:
+    """A case is deterministic when its agent replays fixed output: FixedAgent,
+    or a SmeltAgent driven by ScriptedLLM (whole-agent or llm fragment).
+    Custom agents are assumed stochastic."""
+    agent = case.agent
+    if isinstance(agent, FixedAgent):
+        return True
+    if isinstance(agent, SmeltAgent):
+        return isinstance(agent.llm, ScriptedLLM)
+    if agent is None:
+        client = next((f.client for f in case.fragments if isinstance(f, LLMSpec)), None) or fallback_llm
+        return client is not None and isinstance(client, ScriptedLLM)
+    return False
 
 
 def evaluate_skill(

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -84,6 +85,10 @@ class OpenAIChatClient:
     Usage::
 
         llm = OpenAIChatClient(model="kimi-k2", base_url="https://api.moonshot.cn/v1")
+
+    ``api_key`` / ``base_url`` fall back to the ``SMELT_API_KEY`` /
+    ``SMELT_BASE_URL`` environment variables — typically provided via a .env
+    file (see ``smelt.configure(env_file=...)``); explicit arguments always win.
     """
 
     def __init__(
@@ -99,6 +104,11 @@ class OpenAIChatClient:
             from openai import OpenAI
         except ImportError as e:  # pragma: no cover - optional dependency
             raise ImportError("OpenAIChatClient requires the optional dependency: uv add 'smelt[openai]'") from e
+        from smelt.env import _auto_load
+
+        _auto_load()
+        api_key = api_key or os.environ.get("SMELT_API_KEY")
+        base_url = base_url or os.environ.get("SMELT_BASE_URL")
         kwargs: dict[str, Any] = {"model": model, "temperature": temperature}
         if base_url is not None:
             client_kwargs["base_url"] = base_url

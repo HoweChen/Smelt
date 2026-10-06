@@ -22,7 +22,9 @@ Minimal example::
 __version__ = "0.2.0"
 
 from smelt.case import SmeltCase, new_case
+from smelt.compare import CaseDiff, CompareResult, compare
 from smelt.config import SmeltConfig, config, configure
+from smelt.env import load_env
 from smelt.evaluate import (
     SkillEvaluation,
     SkillEvaluationBuilder,
@@ -72,8 +74,10 @@ from smelt.when import CaseInput, DirectoryInput, TextInput, directory, text
 __all__ = [
     "Agent",
     "CaseContext",
+    "CaseDiff",
     "CaseInput",
     "CaseResult",
+    "CompareResult",
     "ContextSpec",
     "DirectoryInput",
     "Expectation",
@@ -102,6 +106,7 @@ __all__ = [
     "WritingAssessment",
     "WritingDimension",
     "__version__",
+    "compare",
     "config",
     "configure",
     "context",
@@ -111,6 +116,7 @@ __all__ = [
     "json_output",
     "llm",
     "llm_judge",
+    "load_env",
     "new_case",
     "no_tool_call",
     "output_contains",

@@ -21,19 +21,24 @@ class SmeltConfig:
 
     text_similar_threshold: float = 0.8
     llm_judge_threshold: float = 0.8
+    env_file: str | None = ".env"  # .env location (SMELT_* variables); None disables loading
 
 
 config = SmeltConfig()
+
+_UNSET = object()  # distinguishes "leave unchanged" from an explicit None
 
 
 def configure(
     *,
     text_similar_threshold: float | None = None,
     llm_judge_threshold: float | None = None,
+    env_file: str | None | object = _UNSET,
 ) -> SmeltConfig:
-    """Update global default thresholds and return the updated config.
+    """Update global defaults and return the updated config.
 
-    Only values in [0, 1] are accepted; unset (None) fields keep their values.
+    Only thresholds in [0, 1] are accepted; unset (None) fields keep their
+    values. ``env_file`` accepts a path string, or None to disable .env loading.
     """
     global config
     updates = {}
@@ -45,5 +50,7 @@ def configure(
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{key} must be within [0, 1], got {value}")
             updates[key] = value
+    if env_file is not _UNSET:
+        updates["env_file"] = env_file
     config = replace(config, **updates)
     return config

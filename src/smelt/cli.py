@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -51,12 +52,16 @@ def _cmd_run(paths: list[Path], *, verbose: bool) -> int:
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
     """smelt evaluate: comprehensively evaluate a skill and generate a report."""
+    from smelt.env import _auto_load
+
+    _auto_load()
     judge = None
-    if args.judge_model:
+    judge_model = args.judge_model or os.environ.get("SMELT_JUDGE_MODEL")
+    if judge_model:
         try:
             from smelt.given.agents.llm import OpenAIChatClient
 
-            judge = OpenAIChatClient(args.judge_model, base_url=args.base_url)
+            judge = OpenAIChatClient(judge_model, base_url=args.base_url)
         except ImportError as e:
             print(f"✘ {e}", file=sys.stderr)
             return 2
@@ -95,6 +100,24 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     return 0 if score is not None and score >= args.fail_under else 1
 
 
+def _cmd_compare(args: argparse.Namespace) -> int:
+    """smelt compare: diff two evaluation reports; exit 1 on regression."""
+    from smelt.compare import compare
+
+    try:
+        result = compare(args.baseline, args.candidate, min_delta=args.min_delta)
+    except Exception as e:  # noqa: BLE001
+        print(f"✘ compare failed: {type(e).__name__}: {e}", file=sys.stderr)
+        return 2
+    out = result.save(args.output) if args.output else None
+    if out:
+        print(f"comparison written to {out}")
+        print(f"{len(result.improvements)} improved · {len(result.regressions)} regressed")
+    else:
+        print(result.to_markdown())
+    return 1 if result.has_regression else 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="smelt", description="Smelt — a behavior-verification framework for agent skills")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -109,13 +132,19 @@ def _build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evaluate", help="evaluate a skill: behavior + writing + lint scores + suggestions")
     ev.add_argument("path", type=Path, help="skill directory or SKILL.md path")
     ev.add_argument("--cases", type=Path, nargs="*", default=None, help="behavior case files (.py)")
-    ev.add_argument("--judge-model", default=None, help="judge model name (OpenAI-compatible API)")
+    ev.add_argument("--judge-model", default=None, help="judge model name (OpenAI-compatible API); falls back to SMELT_JUDGE_MODEL")
     ev.add_argument("--base-url", default=None, help="base_url for the judge model")
     ev.add_argument("--output", type=Path, default=None, help="report output path (.json → JSON, otherwise Markdown)")
     ev.add_argument("--fail-under", type=float, default=60.0, help="exit non-zero below this score (default 60)")
     ev.add_argument("--no-lint", dest="lint", action="store_false", help="disable the static lint part")
     ev.add_argument("--no-writing", dest="writing", action="store_false", help="disable the LLM writing review part")
     ev.add_argument("--no-suggestions", dest="suggestions", action="store_false", help="disable suggestion generation")
+
+    cmp_parser = sub.add_parser("compare", help="diff two evaluation reports (.json); exit 1 on regression")
+    cmp_parser.add_argument("baseline", type=Path, help="baseline report (.json from evaluate --output)")
+    cmp_parser.add_argument("candidate", type=Path, help="candidate report (.json)")
+    cmp_parser.add_argument("--min-delta", type=float, default=0.05, help="minimum |Δ| that counts as a change (default 0.05)")
+    cmp_parser.add_argument("--output", type=Path, default=None, help="write the comparison report to a file (.json → JSON)")
     return parser
 
 
@@ -129,6 +158,8 @@ def main(argv: list[str] | None = None) -> int:
         return lint_main(["validate", *(args.args or ["--help"])])
     if args.command == "evaluate":
         return _cmd_evaluate(args)
+    if args.command == "compare":
+        return _cmd_compare(args)
     return 2  # pragma: no cover
 
 

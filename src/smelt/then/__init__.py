@@ -13,7 +13,7 @@ from smelt.then.expectations import (
     wall_time,
 )
 from smelt.then.judge import LLMJudgeExpectation, llm_judge
-from smelt.then.references import no_reference_read, reference_read
+from smelt.then.references import no_reference_read, reference_read, reference_untouched
 
 __all__ = [
     "Expectation",
@@ -25,6 +25,7 @@ __all__ = [
     "output_contains",
     "output_equals",
     "reference_read",
+    "reference_untouched",
     "text_similar",
     "tool_budget",
     "tool_call",

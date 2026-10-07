@@ -185,3 +185,72 @@ def test_no_reference_read():
     bad_agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/x.md"}}])
     bad = new_case("r2").given(bad_agent).when(text("go")).then(no_reference_read("references/x.md")).run()
     assert not bad.passed
+
+
+# ---------------------------------------------------------------------------
+# Task 4: reference_untouched (content-fingerprint ablation validity)
+# ---------------------------------------------------------------------------
+
+from smelt import reference_untouched
+
+CONTENT = "The limit parameter accepts values from 1 to 100 inclusive.\nShort.\nThe after parameter is a fullname cursor for pagination."
+
+
+def _skill_with_ref(tmp_path):
+    d = tmp_path / "skills" / "demo"
+    (d / "references").mkdir(parents=True)
+    (d / "references" / "endpoints.md").write_text(CONTENT, encoding="utf-8")
+    return d
+
+
+def test_reference_untouched_passes_when_never_consulted(tmp_path):
+    skill = _skill_with_ref(tmp_path)
+    result = (
+        new_case("clean")
+        .given(fixed_agent("I do not know the parameters."))
+        .when(text("go"))
+        .then(reference_untouched("references/endpoints.md", source=skill))
+        .run()
+    )
+    assert result.passed
+
+
+def test_reference_untouched_fails_on_direct_read(tmp_path):
+    skill = _skill_with_ref(tmp_path)
+    agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/endpoints.md"}}])
+    result = new_case("direct").given(agent).when(text("go")).then(
+        reference_untouched("references/endpoints.md", source=skill)).run()
+    assert not result.passed
+
+
+def test_reference_untouched_fails_on_detour_content_leak(tmp_path):
+    # never "read" the path, but a shell command's RESULT contains the content
+    skill = _skill_with_ref(tmp_path)
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "run_command", "arguments": {"cmd": "grep -r limit ."}, "result": CONTENT},
+    ])
+    result = new_case("detour").given(agent).when(text("go")).then(
+        reference_untouched("references/endpoints.md", source=skill)).run()
+    assert not result.passed
+    assert "leaked" in result.expectations[0].message
+
+
+def test_reference_untouched_flags_parametric_memory(tmp_path):
+    skill = _skill_with_ref(tmp_path)
+    agent = fixed_agent("The limit parameter accepts values from 1 to 100 inclusive.")  # no tool calls at all
+    result = new_case("memory").given(agent).when(text("go")).then(
+        reference_untouched("references/endpoints.md", source=skill)).run()
+    assert not result.passed
+    assert "contamination" in result.expectations[0].message
+
+
+def test_reference_untouched_missing_source_scores_zero(tmp_path):
+    result = (
+        new_case("nosource")
+        .given(fixed_agent("x"))
+        .when(text("go"))
+        .then(reference_untouched("references/ghost.md", source=tmp_path / "nope"))
+        .run()
+    )
+    assert not result.passed
+    assert "source not found" in result.expectations[0].message

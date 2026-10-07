@@ -43,7 +43,7 @@ def test_load_good_skill():
 
 def test_discover_skills_scans_children():
     found = {p.name for p in discover_skills(EXAMPLES)}
-    assert found == {"good_skill", "bad_skill"}
+    assert found == {"good_skill", "bad_skill", "bad_ref_skill"}
 
 
 def test_good_skill_scores_grade_a():

@@ -5,6 +5,7 @@ Tool-name-agnostic: any string argument of any tool call counts."""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,8 +61,9 @@ def no_reference_read(path: str, *, threshold: float = 1.0) -> NoReferenceReadEx
 def _fingerprint_lines(file: Path, *, max_lines: int = 5, min_len: int = 20) -> list[str]:
     """Up to max_lines distinctive content lines (>= min_len chars), spread
     across the file — the proof of 'content entered the context'. Falls back
-    to the whole stripped content for short files."""
-    lines = [ln.strip() for ln in file.read_text(encoding="utf-8").splitlines()]
+    to the whole stripped content for short files. Markdown bullet/heading
+    markers are stripped — quoted usage drops them."""
+    lines = [re.sub(r"^[-*#>\s]+", "", ln.strip()) for ln in file.read_text(encoding="utf-8").splitlines()]
     lines = [ln for ln in lines if len(ln) >= min_len]
     if not lines:
         whole = file.read_text(encoding="utf-8").strip()

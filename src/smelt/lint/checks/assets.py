@@ -11,6 +11,8 @@ from smelt.lint.models import CheckResult, Message, Severity, SkillDoc
 
 LOCAL_LINK_RE = re.compile(r"\[[^\]]*\]\(((?!https?://|mailto:|#)[^)\s]+)\)")
 BACKTICK_PATH_RE = re.compile(r"`((?:scripts|templates|assets|references|examples|docs|tests)/[^`\s]+)`")
+# bare prose mentions: "see references/missing.md." — trailing punctuation stripped on use
+PROSE_PATH_RE = re.compile(r"(?<![\w/`])((?:scripts|templates|assets|references|examples|docs|tests)/[^\s`\"'\]]+)")
 
 
 def _exists(skill_dir: Path, ref: str) -> bool:
@@ -31,6 +33,8 @@ class AssetCheck(Check):
             refs.add(m.group(1))
         for m in BACKTICK_PATH_RE.finditer(skill.body):
             refs.add(m.group(1))
+        for m in PROSE_PATH_RE.finditer(skill.body):
+            refs.add(m.group(1).rstrip(".,;:!?"))
 
         missing = sorted(r for r in refs if not _exists(skill.dir, r))
 

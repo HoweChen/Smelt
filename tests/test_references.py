@@ -461,3 +461,51 @@ def test_compare_ignores_coverage_when_candidate_lacks_key():
     cand_payload = {"skill": {"name": "v2"}, "overall": {"score": 80.0}, "behavior": []}  # pre-feature report
     result = compare(base_payload, cand_payload)
     assert result.coverage_changes == []  # no spurious changes against old reports
+
+
+# ---------------------------------------------------------------------------
+# Bad-skill demo regression: prose references, bullet-stripped fingerprints
+# ---------------------------------------------------------------------------
+
+from smelt.evaluate import _scan_skill_refs
+from smelt.then.references import _fingerprint_lines
+
+
+def test_scan_catches_prose_references():
+    doc = "For pagination details see references/missing.md. Also `references/x.md` and [y](references/y.md)."
+    refs = _scan_skill_refs(doc)
+    assert "references/missing.md" in refs  # bare prose mention
+    assert "references/x.md" in refs        # backtick span
+    assert "references/y.md" in refs        # markdown link
+
+
+def test_fingerprint_strips_markdown_bullets(tmp_path):
+    f = tmp_path / "r.md"
+    f.write_text("# Title\n- GET /r/{sub}/hot — no params needed\n", encoding="utf-8")
+    fp = _fingerprint_lines(f)
+    assert fp == ["GET /r/{sub}/hot — no params needed"]  # bullet/heading markers stripped
+
+
+def test_contamination_detected_when_output_drops_bullet(tmp_path):
+    d = tmp_path / "skills" / "b"
+    (d / "references").mkdir(parents=True)
+    (d / "references" / "e.md").write_text("# Endpoints\n- GET /r/{sub}/hot — no params needed\n", encoding="utf-8")
+    agent = fixed_agent("GET /r/{sub}/hot — no params needed")  # verbatim minus the "- "
+    result = new_case("c").given(agent).when(text("go")).then(
+        reference_untouched("references/e.md", source=d)).run()
+    assert not result.passed
+    assert "contamination" in result.expectations[0].message
+
+
+def test_lint_assets_flags_prose_reference(tmp_path):
+    from smelt.lint.checks.assets import AssetCheck
+    from smelt.lint.loader import load_skill
+
+    d = tmp_path / "skills" / "p"
+    d.mkdir(parents=True)
+    (d / "SKILL.md").write_text(
+        "---\nname: p\ndescription: x\n---\nFor details see references/missing.md.", encoding="utf-8"
+    )
+    result = AssetCheck().run(load_skill(d))
+    assert result.score < 100
+    assert any("references/missing.md" in m.text for m in result.messages)

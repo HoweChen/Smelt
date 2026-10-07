@@ -1,146 +1,126 @@
-# Reference-first testing — design
+# Reference-first testing — design (FINAL)
 
-Date: 2026-10-07 · Status: approved (approach B, phased; revised: references as a
-first-class given fragment) · Repo: Smelt
+Date: 2026-10-07 · Status: approved · Repo: Smelt
 
 ## Context
 
-Skills whose depth lives in `references/` (the minority but most complex ones —
-cf. the 601-skill survey: 85.5% have no resources, but production-grade skills
-like docx/pdf/pptx are reference-heavy) fail in five independent modes:
+Skills whose depth lives in `references/` fail in five independent modes:
+reach (reads it when needed), selection (the right one), utilization (actually
+uses the content), restraint (doesn't read when unneeded), coverage (no case
+ever reaches a reference). Approach B, phased. Out of scope: host-level
+progressive-disclosure simulation.
 
-| Mode | Question | Smelt today |
-|---|---|---|
-| Reach | reads the right file when needed? | `tool_call(args=)` — works, manual mounting |
-| Selection | picks the right one among several? | assemblable, tedious |
-| Utilization | actually uses the content (not hallucinating)? | judge groundedness — works |
-| Restraint | does NOT read when unneeded? | missing: args-level negation |
-| Coverage | which reference is never reached by any case? | missing entirely |
+## Final decisions (after review rounds)
 
-Approved scope: approach B in two phases. Out of scope: full host progressive-
-disclosure simulation (approach C — tests the host's routing, not skill content).
+- References are a **given-layer first-class fragment**, not an agent option
+  (declaration = registration; enables restraint checks, coverage, ablation).
+- **No `forbid`**: the user's scenario is ablation (with/without), where the
+  without arm is simply "don't mount". Discipline testing ("present but
+  shouldn't read") is covered by `no_reference_read` with the file mounted.
+- **Without arm = absent file, never an empty file.** Empty ≠ absent: a
+  successful-but-empty read is a different, confounded world (agents mishandle
+  empty results; EmpR is its own bug class). Materialized removal is the
+  trusted ablation form (skill-eval-harness precedent). Cleanest arm also drops
+  the pointer sentence from the skill prompt (`skill(prompt=...)` variant).
+- Without-arm validity must be **proven, not assumed** — by content
+  fingerprint, not just path matching (`reference_untouched`).
+- `workspace_tool` confinement: deferred (escape detection via normalization
+  + fingerprint suffices for v1).
 
-## Revision (2026-10-07): references are a `given`, not an agent option
+## Phase 1 — API
 
-Rationale (validated against pytest-bdd's target_fixture pattern and the
-skill-eval-harness manifest, where `reference` is a declared, ablatable
-experiment unit): a reference file is precondition state — it belongs in
-`given`. Declaring it there makes it **registered**, not just mounted: the
-framework knows which files are skill references, which powers restraint
-checks, coverage, and ablation. `smelt_agent(mount_resources=True)` is
-dropped (subsumed).
-
-Division of labor with `context(files=)`: context mounts **task inputs**
-(files the user hands the agent); `reference()` / `reference_folder()` mount **skill resources**
-(with registration semantics). They coexist.
-
-## Phase 1 — assertion layer
-
-### 1.1 `reference()` / `reference_folder()` given fragments
+### given
 
 ```python
-.given(reference("skills/reddit/references/endpoints.md"))   # one file — precise subset / ablation
-.given(reference_folder("skills/reddit"))                    # everything at once: references/, scripts/, assets/
-.given(reference_folder("skills/reddit/references"))         # or point at a subdir directly
+.given(reference("skills/reddit/references/endpoints.md"))   # one file
+.given(reference_folder("skills/reddit"))                    # whole skill's references/ + scripts/ + assets/
+.given(reference_folder("skills/reddit/references"))         # or a bare directory
 ```
 
-Two fragments instead of one `only=`-parameterized function — the common case
-("load all references") gets its own obvious name, the precise case stays
-minimal:
+Both are factories producing `ContextSpec` (new field `references: tuple[str,
+...]` — workspace-relative registered paths). `reference()`: mounts the file at
+its skill-root-relative path (walk up to the dir containing SKILL.md; fallback:
+basename). `reference_folder()`: skill root → mounts each existing resource
+subdir under `workspace/<name>/`; bare dir → mounts recursively under
+`workspace/<dir.name>/`. All mounted files are registered into
+`CaseContext.references` (new field). Missing file/dir → FileNotFoundError at
+materialize, naming the path.
 
-- `reference(path)`: mounts exactly one file into the workspace at its
-  skill-relative path, registers it.
-- `reference_folder(dir)`: if the dir IS a skill root (has a SKILL.md), mounts
-  its `references/`, `scripts/`, `assets/` subdirectories (whichever exist);
-  otherwise mounts the directory's contents recursively as-is. Registers every
-  mounted file.
+Division of labor: `context(files=)` mounts task inputs; `reference*` mounts
+skill resources with registration.
 
-Implementation: a `ContextSpec` factory — mounts into the case workspace at
-the same relative paths, and records the mounted set into
-`CaseContext.references` (new field, `tuple[str, ...]`, normalized posix
-paths). Missing dir/file → FileNotFoundError at materialize time (consistent
-with context(files=)); a skill root with no resource dirs → registered set is
-empty.
+### then
 
-### 1.2 `no_tool_call(name, args=None)`
-
-Extend `NoToolCallExpectation` with an optional args subset (reuses
-`_args_match`): a violation = a call matching name AND the args subset.
-`args=None` keeps today's name-only semantics. Backward compatible.
-
-### 1.3 Sugar assertions: `reference_read(path)` / `no_reference_read(path)`
-
-Tool-name-agnostic: a "reference read" = any tool call carrying a string
-argument that, normalized (posix, strip leading `./`, workspace-relative),
-equals or ends with the given path. Rationale: skills say "read
-references/x.md" without prescribing the tool (`read_file`, `read`, `cat`…).
-Binary scoring, like `no_tool_call`. When the case declared `reference(...)` / `reference_folder(...)`,
-both assertions also verify the path is within the declared set — reading an
-undeclared file still satisfies `reference_read` (the behavior happened) but
-adds a message note "not in declared references"; `no_reference_read` is
-unchanged by declaration.
-
-## Phase 2 — reference coverage report (evaluate level)
-
-### 2.1 Declared + scanned universe
-
-The reference universe for a skill = ∪ of every case's declared
-`reference*` declarations set ∪ static scan of the SKILL.md body (markdown links and
-inline-code spans targeting `references/`, `scripts/`, `assets/`). The scan
-catches references no case declared (under-tested surface).
-
-### 2.2 Dynamic reach
-
-Aggregate across all behavior-case traces: the set of universe files that
-appeared in any tool call (same normalization as 1.3).
-
-### 2.3 Report
-
-New `reference_coverage` section in `SkillEvaluation` (markdown + JSON): per
-universe file → `reached` (count) or `unreached`, marking whether it came from
-declaration, scan, or both; plus the unreached list. Semantics are deliberately
-shallow: reach ≠ correct use. `None` (section omitted) when the universe is
-empty. Evaluate without behavior cases → everything unreached, flagged "no
-behavior cases ran".
-
-### 2.4 compare() integration
-
-`CompareResult` gains an informational `coverage_changes` list:
-`reached → unreached` transitions between versions (a reference the skill
-stopped consulting is a prime regression signal for reference-heavy skills).
-Informational only — does not affect case verdicts or `has_regression`.
-
-## Data flow
-
+```python
+.then(reference_read("references/endpoints.md"))       # reach: ≥1 matching call
+.then(no_reference_read("references/performance.md"))  # restraint: 0 matching calls
+.then(reference_untouched("references/endpoints.md", source="skills/reddit"))  # ablation validity
+.then(no_tool_call("read_file", args={"path": "..."}))  # args-level negation (extends existing)
 ```
-given(reference(...) / reference_folder(...)) ──declare──┐
-                                  ├─► universe ─┐
-SKILL.md ──static scan───────────┘              ├─► coverage table → report / compare
-case traces ──tool calls──► reached files ──────┘
+
+Matching is tool-name-agnostic: any string argument of any tool call,
+normalized (`os.path.normpath`, posix separators, `./` stripped) and compared
+by equality or trailing-segment match — so absolute-path and `../` escape
+attempts are detected, not missed.
+
+`reference_untouched(path, source=...)`: proves the content never entered the
+context. The evaluation layer reads the REAL file (`source/path`) and builds a
+fingerprint (up to 5 content lines ≥20 chars, spread across the file); fails if
+(a) any tool call targets the path, or (b) any tool RESULT contains a
+fingerprint line (catches `cat`/`grep`/absolute-path leaks). A final output
+containing fingerprint lines without any successful read = parametric-memory
+contamination — reported in the message, still a failure for ablation validity.
+
+### tools
+
+```python
+.given(tools(mock_tool(read_file, {"references/endpoints.md": ""})))
 ```
+
+`mock_tool(base, results)` wraps a Tool: same name/spec; invoke returns the
+mapped value when any string argument path-matches a key, else delegates.
+For robustness testing (empty/broken/stale content) — NOT for ablation.
+
+### Ablation pattern (no new syntax)
+
+```python
+new_case("q-with").given(reference_folder("skills/reddit")).given(agent).when(q).then(...)
+new_case("q-without").given(smelt_agent(prompt=skill_body_without_pointer, ...)).when(q) \
+    .then(reference_untouched("references/endpoints.md", source="skills/reddit"))
+# lift = compare(with_report, without_report)
+```
+
+## Phase 2 — coverage report + compare
+
+- Universe = ∪ of every case's registered `references` ∪ static scan of
+  SKILL.md (markdown links / inline code targeting `references/`,
+  `scripts/`, `assets/`).
+- Reached = universe files appearing in any tool call in the aggregated
+  behavior traces.
+- `SkillEvaluation.reference_coverage`: per-file reached(count)/unreached +
+  origin (declared/scanned); omitted when the universe is empty; markdown +
+  JSON. Reach ≠ quality — stated plainly.
+- `CompareResult.coverage_changes`: reached→unreached transitions between
+  versions; informational only, never affects verdicts or `has_regression`.
 
 ## Error handling
 
-- `reference()` / `reference_folder()` with a missing file/dir → FileNotFoundError at
-  materialize, naming the missing path.
-- Unparseable SKILL.md links ignored (best-effort scan).
-- 1.3 normalization mismatches (absolute vs relative spellings) are covered by
-  tests; no silent misclassification.
+- Missing file/dir at materialize → FileNotFoundError naming the path.
+- `reference_untouched` with an unreadable source file → scores 0 with a
+  "source not found" message (errors converge into results, consistent with
+  the rest of the framework).
+- Best-effort SKILL.md scan: unparseable links ignored.
 
 ## Testing
 
-TDD throughout. Phase 1: full/partial mount, registration into CaseContext,
-missing-dir and bad-only errors, args-negation pass/fail, sugar assertions
-across differing tool names and path spellings (`./` prefix, absolute workspace
-path), undeclared-read note. Phase 2: scan extraction (links, code spans,
-non-reference links ignored), universe union (declared ∪ scanned), reach
-aggregation across cases, report rendering, compare coverage_changes,
-empty-universe omission.
+TDD throughout. Phase 1: mount/registration (full, subset, bare dir, errors),
+args-negation, path normalization spellings (./, absolute, ../), fingerprint
+leak detection via detour tools, contamination note, mock_tool hit/delegate.
+Phase 2: scan extraction, universe union, reach aggregation, report rendering,
+compare coverage_changes, empty-universe omission.
 
 ## Non-goals
 
-- No host-level progressive-disclosure simulation (load_skill tooling).
-- No quality inference from reach counts.
-- No leakage lint (answer copied from reference) in this iteration — noted as a
-  follow-up, enabled by the declaration registry.
-- No changes to judge prompts, weights, or grading.
+- No host-level progressive-disclosure simulation; no `forbid`; no
+  `workspace_tool` this iteration; no leakage lint; no quality inference from
+  reach counts; no judge/weights/grading changes.

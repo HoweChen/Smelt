@@ -105,7 +105,8 @@ new_case("q-without").given(smelt_agent(prompt=skill_body_without_pointer, ...))
 
 ## Error handling
 
-- Missing file/dir at materialize → FileNotFoundError naming the path.
+- Missing file/dir → FileNotFoundError at declaration time (eager factory
+  validation, before the case ever runs).
 - `reference_untouched` with an unreadable source file → scores 0 with a
   "source not found" message (errors converge into results, consistent with
   the rest of the framework).

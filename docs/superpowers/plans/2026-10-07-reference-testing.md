@@ -97,8 +97,10 @@ class NoToolCallExpectation:
         if self.args is not None:
             calls = [c for c in calls if _args_match(c.arguments, self.args)]
         if calls:
-            return _result(self.name, 0.0, self.threshold,
-                           f"{self.tool_name} was called {len(calls)} time(s) with {dict(self.args or {})}")
+            msg = f"{self.tool_name} was called {len(calls)} time(s)"
+            if self.args:
+                msg += f" with {dict(self.args)}"
+            return _result(self.name, 0.0, self.threshold, msg)
         return _result(self.name, 1.0, self.threshold)
 
 
@@ -131,7 +133,7 @@ git commit -m "no_tool_call: args-level negation"
 - Create: `src/smelt/refpath.py` (shared normalization — Task 3 reuses it)
 - Create: `src/smelt/given/references.py`
 - Modify: `src/smelt/given/context.py` (ContextSpec.references field, merge, CaseContext.references, materialize)
-- Modify: `src/smelt/given/__init__.py` (export reference, reference_folder)
+- Modify: `src/smelt/given/__init__.py` AND `src/smelt/__init__.py` (export reference, reference_folder)
 - Test: `tests/test_references.py` (append)
 
 **Interfaces:**
@@ -221,9 +223,37 @@ def test_reference_single_file_skill_relative(tmp_path):
     assert captured == {"refs": ["references/a.md"], "a": True, "b": False}
 
 
-def test_reference_missing_path_raises(tmp_path):
+def test_reference_missing_path_raises_eagerly(tmp_path):
     with pytest.raises(FileNotFoundError, match="ghost"):
-        new_case("missing").given(reference(tmp_path / "ghost.md")).given(fixed_agent("x")).when(text("go")).run()
+        reference(tmp_path / "ghost.md")
+
+
+def test_reference_folder_missing_dir_raises_eagerly(tmp_path):
+    with pytest.raises(FileNotFoundError, match="ghost"):
+        reference_folder(tmp_path / "ghost")
+
+
+def test_stacked_references_accumulate(tmp_path):
+    skill = _skill(tmp_path)
+    captured = {}
+
+    class Spy:
+        def run(self, ctx, input):
+            captured["refs"] = sorted(ctx.references)
+            from smelt.trace import Trace
+            return Trace(output="done")
+
+    result = (
+        new_case("stacked")
+        .given(reference(skill / "references" / "a.md"))
+        .given(reference(skill / "references" / "b.md"))
+        .given(Spy())
+        .when(text("go"))
+        .then(output_equals("done"))
+        .run()
+    )
+    assert result.passed
+    assert captured["refs"] == ["references/a.md", "references/b.md"]  # merge accumulates
 
 
 def test_reference_folder_empty_resources_registers_nothing(tmp_path):
@@ -319,6 +349,8 @@ def reference(path: str | os.PathLike[str]) -> ContextSpec:
     """given(reference("skills/x/references/a.md")) — mount one file at its
     skill-relative workspace path and register it."""
     src = Path(path)
+    if not src.exists():
+        raise FileNotFoundError(f"reference does not exist: {src}")
     dest = _skill_relative(src)
     return ContextSpec(files=((src, dest),), references=(dest.as_posix(),))
 
@@ -346,7 +378,7 @@ def reference_folder(directory: str | os.PathLike[str]) -> ContextSpec:
 
 In `src/smelt/given/context.py`: add `references: tuple[str, ...] = ()` to `ContextSpec`; in `merge` add `references=self.references + other.references`; in `CaseContext` add `references: list[str] = field(default_factory=list)`; in `materialize` add `self.references.extend(spec.references)`.
 
-In `src/smelt/given/__init__.py`: export `reference` and `reference_folder` (follow existing import/export pattern there).
+In `src/smelt/given/__init__.py`: export `reference` and `reference_folder` (follow existing import/export pattern there). In `src/smelt/__init__.py`: add both names to the `from smelt.given import (...)` block and to `__all__` (sorted: `reference` and `reference_folder` sit between `output_equals` and `run_case`).
 
 - [ ] **Step 4: run, verify pass**
 
@@ -632,8 +664,11 @@ class ReferenceUntouchedExpectation:
                                    f"content leaked into result of {c.name}: {line[:60]!r}")
         for line in fingerprint:
             if line in trace.output:
-                return _result(self.name, 0.0, self.threshold,
-                               f"output contains reference content with no read — parametric-memory contamination: {line[:60]!r}")
+                return _result(
+                    self.name, 0.0, self.threshold,
+                    "output contains reference content with no read — "
+                    f"parametric-memory contamination: {line[:60]!r}",
+                )
         return _result(self.name, 1.0, self.threshold, "untouched")
 
 
@@ -788,11 +823,15 @@ def test_evaluate_reference_coverage(tmp_path):
 
 
 def test_evaluate_coverage_omitted_without_references(tmp_path):
-    good = Path(__file__).resolve().parent.parent / "examples" / "good_skill"
-
+    # a skill whose SKILL.md mentions no references/ scripts/ assets/ paths
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "SKILL.md").write_text(
+        "---\nname: plain\ndescription: x\n---\nNo resources here.", encoding="utf-8"
+    )
     case = new_case("c").given(fixed_agent("done")).when(text("go")).then(output_equals("done"))
     evaluation = (
-        evaluate_skill(good).with_cases(case)
+        evaluate_skill(plain).with_cases(case)
         .with_lint(False).with_writing(enabled=False).with_suggestions(enabled=False).with_times(1).run()
     )
     assert evaluation.reference_coverage is None
@@ -813,6 +852,28 @@ def test_compare_coverage_changes(tmp_path):
     result = compare(base_payload, cand_payload)
     assert result.coverage_changes == ["references/a.md: reached → unreached"]
     assert not result.has_regression  # informational only
+    assert "reached → unreached" in result.to_markdown()  # rendered for humans
+
+
+def test_references_survive_repeated_aggregation(tmp_path):
+    skill = _skill(tmp_path)
+    agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/a.md"}}])
+    case = (
+        new_case("rep")
+        .given(reference_folder(skill))
+        .given(agent)
+        .when(text("go"))
+        .then(reference_read("references/a.md"))
+    )
+    evaluation = (
+        evaluate_skill(skill).with_cases(case)
+        .with_lint(False).with_writing(enabled=False).with_suggestions(enabled=False)
+        .with_times(3).run()
+    )
+    # aggregation keeps the last ok run's registered references
+    assert evaluation.behavior_results[0].references  # non-empty
+    coverage = {c["path"]: c for c in evaluation.reference_coverage}
+    assert coverage["references/a.md"]["reached"] >= 1
 ```
 
 - [ ] **Step 2: run, verify fail**
@@ -896,7 +957,13 @@ and in `compare()`, before the return:
     ]
 ```
 
-then pass `coverage_changes=changes` to the `CompareResult(...)` constructor.
+then pass `coverage_changes=changes` to the `CompareResult(...)` constructor. Also render it: in `to_dict()` add `"coverage_changes": self.coverage_changes`, and at the end of `to_markdown()` (before the regressions block) add:
+
+```python
+        if self.coverage_changes:
+            lines.append("**Reference coverage changes:** " + "; ".join(self.coverage_changes))
+            lines.append("")
+```
 
 - [ ] **Step 4: run, verify pass**
 

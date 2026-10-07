@@ -75,3 +75,20 @@ def tool(
         )
 
     return wrap(fn) if fn is not None else wrap
+
+
+def mock_tool(base: Tool, results: Mapping[str, Any]) -> Tool:
+    """Wrap a tool: when any string argument path-matches a key in ``results``,
+    return the mapped value instead of calling the real handler. For
+    content-level robustness tests (empty / broken / stale reference content) —
+    NOT for with/without ablation (there, simply don't mount)."""
+    from smelt.refpath import ref_path_matches
+
+    def handler(**kwargs: Any) -> Any:
+        for key, value in results.items():
+            if any(isinstance(v, str) and ref_path_matches(v, key) for v in kwargs.values()):
+                return value
+        return base.handler(**kwargs)
+
+    return Tool(name=base.name, description=base.description, handler=handler,
+                parameters=dict(base.parameters))

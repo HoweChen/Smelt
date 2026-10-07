@@ -75,7 +75,7 @@ from smelt.then import (
     turns_used,
     wall_time,
 )
-from smelt.tools import Tool, tool
+from smelt.tools import Tool, mock_tool, tool
 from smelt.trace import ToolCallRecord, Trace
 from smelt.when import CaseInput, DirectoryInput, TextInput, directory, text
 
@@ -125,6 +125,7 @@ __all__ = [
     "llm",
     "llm_judge",
     "load_env",
+    "mock_tool",
     "new_case",
     "no_reference_read",
     "no_tool_call",

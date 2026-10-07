@@ -254,3 +254,26 @@ def test_reference_untouched_missing_source_scores_zero(tmp_path):
     )
     assert not result.passed
     assert "source not found" in result.expectations[0].message
+
+
+# ---------------------------------------------------------------------------
+# Task 5: mock_tool (content-level ablation / robustness)
+# ---------------------------------------------------------------------------
+
+from smelt import mock_tool, tool
+
+
+def test_mock_tool_intercepts_matching_path(tmp_path):
+    real = tmp_path / "real.md"
+    real.write_text("real content", encoding="utf-8")
+
+    @tool
+    def read_file(path: str) -> str:
+        """Read a file"""
+        return Path(path).read_text(encoding="utf-8")
+
+    mocked = mock_tool(read_file, {"references/endpoints.md": ""})
+    assert mocked.name == "read_file"
+    assert mocked.spec()["parameters"] == read_file.spec()["parameters"]
+    assert mocked.invoke({"path": "references/endpoints.md"}) == ""
+    assert mocked.invoke({"path": str(real)}) == "real content"  # non-matching delegates

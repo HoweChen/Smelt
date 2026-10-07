@@ -439,6 +439,34 @@ def test_openai_client_import_error_message(monkeypatch):
         OpenAIChatClient("any")
 
 
+def test_openai_client_extra_body_passthrough(monkeypatch):
+    """Provider-specific switches (e.g. thinking-mode disable) reach the request body."""
+    captured = {}
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return types.SimpleNamespace(
+                choices=[types.SimpleNamespace(message=types.SimpleNamespace(content="ok", tool_calls=None))],
+            )
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = types.SimpleNamespace(completions=FakeCompletions())
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+
+    from smelt.given.agents.llm import OpenAIChatClient
+
+    client = OpenAIChatClient("m", api_key="sk-x", extra_body={"thinking": {"type": "disabled"}})
+    client.complete([{"role": "user", "content": "hi"}], [])
+    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
+
+    captured.clear()
+    OpenAIChatClient("m", api_key="sk-x").complete([], [])
+    assert "extra_body" not in captured  # omitted by default
+
+
 # ---------------------------------------------------------------------------
 # smelt agent edges
 # ---------------------------------------------------------------------------

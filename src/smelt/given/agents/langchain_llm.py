@@ -16,6 +16,7 @@ Usage::
 from __future__ import annotations
 
 import itertools
+import json
 from collections.abc import Sequence
 from typing import Any
 
@@ -30,8 +31,20 @@ except ImportError as e:  # pragma: no cover - optional dependency
     ) from e
 
 
+def _parse_tool_call(t: dict[str, Any]) -> tuple[str, dict[str, Any], str | None]:
+    """Accept the OpenAI wire shape ({id, type, function:{name, arguments}}) and
+    the legacy flat shape ({name, arguments}); return (name, args, id)."""
+    if "function" in t:
+        args = t["function"].get("arguments") or {}
+        if isinstance(args, str):
+            args = json.loads(args)
+        return t["function"]["name"], args, t.get("id")
+    return t["name"], t.get("arguments", {}), t.get("id")
+
+
 def _to_langchain(messages: list[dict[str, Any]]) -> list[BaseMessage]:
-    """OpenAI-style dicts → langchain messages. Tool-call ids are synthesized and paired."""
+    """OpenAI-style dicts → langchain messages. Existing tool-call ids are kept;
+    missing ones are synthesized and paired with the following tool messages."""
     counter = itertools.count(1)
     pending_ids: list[str] = []
     out: list[BaseMessage] = []
@@ -42,16 +55,21 @@ def _to_langchain(messages: list[dict[str, Any]]) -> list[BaseMessage]:
         elif role == "user":
             out.append(HumanMessage(content=m["content"]))
         elif role == "assistant":
-            calls = [
-                {"name": t["name"], "args": t.get("arguments", {}), "id": f"smelt-call-{next(counter)}"}
-                for t in (m.get("tool_calls") or [])
-            ]
+            calls = []
+            for t in (m.get("tool_calls") or []):
+                name, args, call_id = _parse_tool_call(t)
+                calls.append({"name": name, "args": args, "id": call_id or f"smelt-call-{next(counter)}"})
             pending_ids.extend(c["id"] for c in calls)
             out.append(AIMessage(content=m.get("content") or "", tool_calls=calls))
         elif role == "tool":
+            call_id = m.get("tool_call_id")
+            if call_id and call_id in pending_ids:
+                pending_ids.remove(call_id)
+            else:
+                call_id = pending_ids.pop(0) if pending_ids else "smelt-call-0"
             out.append(ToolMessage(
                 content=m["content"],
-                tool_call_id=pending_ids.pop(0) if pending_ids else "smelt-call-0",
+                tool_call_id=call_id,
                 name=m.get("name"),
             ))
         else:

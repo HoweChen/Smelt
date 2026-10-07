@@ -94,6 +94,10 @@ class OpenAIChatClient:
     ``api_key`` / ``base_url`` fall back to the ``SMELT_API_KEY`` /
     ``SMELT_BASE_URL`` environment variables — typically provided via a .env
     file (see ``smelt.configure(env_file=...)``); explicit arguments always win.
+
+    ``extra_body`` is merged verbatim into every request — the escape hatch for
+    provider-specific switches such as disabling thinking mode
+    (``extra_body={"thinking": {"type": "disabled"}}``).
     """
 
     def __init__(
@@ -103,6 +107,7 @@ class OpenAIChatClient:
         base_url: str | None = None,
         api_key: str | None = None,
         temperature: float = 0.0,
+        extra_body: Mapping[str, Any] | None = None,
         **client_kwargs: Any,
     ) -> None:
         try:
@@ -115,6 +120,8 @@ class OpenAIChatClient:
         api_key = api_key or os.environ.get("SMELT_API_KEY")
         base_url = base_url or os.environ.get("SMELT_BASE_URL")
         kwargs: dict[str, Any] = {"model": model, "temperature": temperature}
+        if extra_body is not None:
+            kwargs["extra_body"] = dict(extra_body)
         if base_url is not None:
             client_kwargs["base_url"] = base_url
         if api_key is not None:

@@ -7,6 +7,7 @@ or max_turns is hit. Everything is recorded into the Trace.
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 from collections.abc import Sequence
@@ -74,6 +75,7 @@ class SmeltAgent:
         os.chdir(ctx.workspace)
         turns = 0
         usage_total: dict[str, int] = {}
+        id_counter = itertools.count(1)
         try:
             for _ in range(self.max_turns):
                 response = self.llm.complete(messages, self.tools)
@@ -89,16 +91,32 @@ class SmeltAgent:
                     messages.append({"role": "assistant", "content": response.content})
                     return trace
 
-                for call in response.tool_calls:
+                # OpenAI wire format: one assistant message carries all tool calls,
+                # each with an id; every tool result pairs back via tool_call_id.
+                # Strict providers (DeepSeek et al.) 422 on anything less.
+                calls = response.tool_calls
+                ids = [f"smelt-call-{next(id_counter)}" for _ in calls]
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": call.name,
+                                "arguments": json.dumps(call.arguments, ensure_ascii=False, default=str),
+                            },
+                        }
+                        for call, call_id in zip(calls, ids)
+                    ],
+                })
+                for call, call_id in zip(calls, ids):
                     record = self._execute(call.name, call.arguments, ctx)
                     trace.tool_calls.append(record)
                     messages.append({
-                        "role": "assistant",
-                        "content": response.content,
-                        "tool_calls": [{"name": call.name, "arguments": call.arguments}],
-                    })
-                    messages.append({
                         "role": "tool",
+                        "tool_call_id": call_id,
                         "name": record.name,
                         "content": record.error if record.error else json.dumps(record.result, ensure_ascii=False, default=str),
                     })

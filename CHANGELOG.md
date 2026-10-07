@@ -3,6 +3,27 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.1] - 2026-10-07
+
+### Fixed
+
+- **Reference coverage: anchor normalization** — `_scan_skill_refs` treated
+  `references/x.md#锚点` and `references/x.md` as different entries, inflating
+  the coverage table with unreachable phantoms. `normalize_ref_path` now strips
+  `#fragment` / `?query` suffixes and URL-decodes (Chinese anchors included),
+  so the SKILL.md scan and trace matching share one spelling.
+- **SmeltAgent messages now follow the OpenAI wire format** — assistant
+  messages carry `tool_calls` entries with `id` / `type` / `function`, and tool
+  results pair back via `tool_call_id`. Strict providers (e.g. DeepSeek) no
+  longer 422 on `missing field 'id'`. `LangChainLLM._to_langchain` accepts both
+  the wire format and the legacy flat shape, reusing existing ids.
+
+### Added
+
+- **`OpenAIChatClient(extra_body={...})`** — verbatim request-body passthrough
+  for provider-specific switches, e.g. disabling thinking mode:
+  `extra_body={"thinking": {"type": "disabled"}}`.
+
 ## [0.4.0] - 2026-10-07
 
 Reference-first testing: skills whose depth lives in `references/` are now

@@ -1,5 +1,6 @@
 """Core framework tests: DSL, agents, expectations, runner."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -238,6 +239,37 @@ def test_smelt_agent_unknown_tool_goes_into_trace():
     )
     assert result.passed
     assert result.trace.tool_calls[0].error.startswith("unknown tool")
+
+
+def test_smelt_agent_messages_follow_openai_wire_format():
+    """Strict providers (DeepSeek et al.) 422 without paired tool-call ids."""
+    from smelt.given.agents.llm import ToolCall
+
+    llm = ScriptedLLM([
+        LLMResponse(tool_calls=(
+            ToolCall(name="write_file", arguments={"path": "a.txt", "content": "1"}),
+            ToolCall(name="write_file", arguments={"path": "b.txt", "content": "2"}),
+        )),
+        LLMResponse.say("done"),
+    ])
+    result = (
+        new_case("wire-format")
+        .given(smelt_agent(llm=llm, tools=_make_tools(), system_prompt="sys"))
+        .when(text("write two files"))
+        .then(output_equals("done"))
+        .run()
+    )
+    assert result.passed, result.summary()
+
+    history = llm.calls[1]  # messages seen by the second completion
+    assistant = next(m for m in history if m["role"] == "assistant" and m.get("tool_calls"))
+    tools = [m for m in history if m["role"] == "tool"]
+    assert len(assistant["tool_calls"]) == 2 and len(tools) == 2
+    for call_msg, tool_msg in zip(assistant["tool_calls"], tools):
+        assert call_msg["id"] and call_msg["type"] == "function"
+        assert call_msg["function"]["name"] == "write_file"
+        assert json.loads(call_msg["function"]["arguments"])["path"] in ("a.txt", "b.txt")
+        assert tool_msg["tool_call_id"] == call_msg["id"]  # paired, as the spec requires
 
 
 # ---------------------------------------------------------------------------

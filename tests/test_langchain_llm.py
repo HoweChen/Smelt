@@ -26,6 +26,19 @@ def test_unsupported_role_raises():
         _to_langchain([{"role": "function", "content": "x"}])
 
 
+def test_accepts_openai_wire_format_with_paired_ids():
+    lc = _to_langchain([
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "smelt-call-1", "type": "function",
+             "function": {"name": "t", "arguments": '{"a": 1}'}},
+        ]},
+        {"role": "tool", "tool_call_id": "smelt-call-1", "name": "t", "content": "result"},
+    ])
+    call = lc[0].tool_calls[0]
+    assert call["name"] == "t" and call["args"] == {"a": 1} and call["id"] == "smelt-call-1"
+    assert lc[1].tool_call_id == "smelt-call-1"  # explicit id reused, not re-synthesized
+
+
 def test_plain_text_response():
     model = GenericFakeChatModel(messages=iter([AIMessage(content="hello")]))
     resp = LangChainLLM(model).complete([{"role": "user", "content": "hi"}], [])

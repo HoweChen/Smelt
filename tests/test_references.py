@@ -509,3 +509,67 @@ def test_lint_assets_flags_prose_reference(tmp_path):
     result = AssetCheck().run(load_skill(d))
     assert result.score < 100
     assert any("references/missing.md" in m.text for m in result.messages)
+
+
+# ---------------------------------------------------------------------------
+# Anchor normalization: '#fragment' and URL-encoding collapse to the file path
+# (scan side and match side share normalize_ref_path)
+# ---------------------------------------------------------------------------
+
+
+def test_scan_strips_anchor_and_dedups():
+    doc = (
+        "See [patterns](references/pattern-examples.md#创建型模式示例), "
+        "[encore](references/pattern-examples.md#结构型模式示例), "
+        "and [plain](references/pattern-examples.md)."
+    )
+    refs = _scan_skill_refs(doc)
+    assert refs == ["references/pattern-examples.md"]  # anchors stripped, one entry
+
+
+def test_scan_decodes_url_encoded_anchor_and_path():
+    doc = "[x](references/%E4%B8%AD%E6%96%87.md#%E9%94%9A%E7%82%B9)"
+    assert _scan_skill_refs(doc) == ["references/中文.md"]
+
+
+def test_ref_path_matches_anchor_spellings():
+    from smelt.refpath import ref_path_matches
+
+    assert ref_path_matches("references/x.md#section", "references/x.md")  # trace arg carries an anchor
+    assert ref_path_matches("references/x.md", "references/x.md#section")  # declared path carries one
+
+
+def test_anchor_trace_arg_counts_as_read():
+    agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/x.md#sec"}}])
+    result = new_case("a").given(agent).when(text("go")).then(reference_read("references/x.md")).run()
+    assert result.passed
+
+
+def test_coverage_merges_anchor_scans_with_declared(tmp_path):
+    skill = _skill(tmp_path)  # has references/a.md, references/b.md
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: x\n---\nRead [a](references/a.md#用法示例) when needed.",
+        encoding="utf-8",
+    )
+    reader = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/a.md"}}])
+    case = (
+        new_case("uses-a")
+        .given(reference_folder(skill))
+        .given(reader)
+        .when(text("go"))
+        .then(reference_read("references/a.md"))
+    )
+    evaluation = (
+        evaluate_skill(skill)
+        .with_cases(case)
+        .with_lint(False)
+        .with_writing(enabled=False)
+        .with_suggestions(enabled=False)
+        .with_times(1)
+        .run()
+    )
+    coverage = {c["path"]: c for c in evaluation.reference_coverage}
+    # no anchor-suffixed phantom entries (scripts/s.py is declared by reference_folder)
+    assert set(coverage) == {"references/a.md", "references/b.md", "scripts/s.py"}
+    assert coverage["references/a.md"]["reached"] == 1
+    assert coverage["references/a.md"]["origin"] == "both"

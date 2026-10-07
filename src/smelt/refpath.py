@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 from smelt.trace import ToolCallRecord, Trace
 
@@ -12,8 +13,11 @@ from smelt.trace import ToolCallRecord, Trace
 def normalize_ref_path(p: str) -> str:
     """normpath + posix separators; strips leading './'. Backslashes are treated
     as separators too; absolute paths keep their tail so escape spellings still
-    trailing-match."""
-    norm = os.path.normpath(p.strip().replace("\\", "/")).replace(os.sep, "/")
+    trailing-match. Markdown link decorations are removed as well — '#fragment'
+    anchors / '?query' suffixes and URL-encoded characters (Chinese anchors) —
+    so the SKILL.md scan and the trace matching agree on one spelling."""
+    raw = unquote(urlparse(p.strip().replace("\\", "/")).path)
+    norm = os.path.normpath(raw).replace(os.sep, "/")
     while norm.startswith("./"):
         norm = norm[2:]
     return norm

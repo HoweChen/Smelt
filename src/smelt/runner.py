@@ -85,6 +85,7 @@ def _run_once(case: SmeltCase) -> CaseResult:
         expectations=results,
         trace=trace,
         workspace=str(workspace),
+        references=list(ctx.references),
     )
 
 
@@ -132,4 +133,5 @@ def _aggregate(name: str, results: list[CaseResult]) -> CaseResult:
         run_scores=run_scores,
         run_errors=run_errors,
         run_passed=run_passed,
+        references=last.references,
     )

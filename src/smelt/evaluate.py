@@ -20,6 +20,7 @@ Usage::
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -40,6 +41,13 @@ from smelt.tools import Tool
 # Default repeat count for stochastic agents (real LLMs). Deterministic
 # backends (fixed_agent / ScriptedLLM) auto-degrade to a single run.
 DEFAULT_TIMES = 3
+
+_REF_SCAN_RE = re.compile(r"(?:\]\(|`)((?:references|scripts|assets)/[^)`\s]+)")
+
+
+def _scan_skill_refs(document: str) -> list[str]:
+    """Referenced resource paths in markdown links / inline code spans."""
+    return sorted(set(_REF_SCAN_RE.findall(document)))
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -82,6 +90,7 @@ class SkillEvaluation:
     suggestions: list[str] = field(default_factory=list)
     suggestions_error: str | None = None
     weights: dict[str, float] = field(default_factory=dict)
+    reference_coverage: list[dict[str, Any]] | None = None  # None when the skill references nothing
 
     # -- per-part scores (0~1; None when disabled or no data) -----------------
     @property
@@ -188,6 +197,7 @@ class SkillEvaluation:
             ),
             "suggestions": self.suggestions,
             "suggestions_error": self.suggestions_error,
+            "reference_coverage": self.reference_coverage,
         }
 
     def to_json(self, *, indent: int = 2) -> str:
@@ -252,6 +262,13 @@ class SkillEvaluation:
                     lines.append(f"| {d.name} | {d.score:.2f} | {d.comment} |")
                 if self.writing.overall_comment:
                     lines += ["", f"> {self.writing.overall_comment}"]
+            lines.append("")
+
+        if self.reference_coverage:
+            lines += ["## Reference Coverage", "", "| Reference | Reached | Origin |", "|---|---|---|"]
+            for c in self.reference_coverage:
+                reached = f"{c['reached']}×" if c["reached"] else "unreached"
+                lines.append(f"| {c['path']} | {reached} | {c['origin']} |")
             lines.append("")
 
         lines += ["## Improvement Suggestions", ""]
@@ -445,6 +462,7 @@ class SkillEvaluationBuilder:
             evaluation.behavior_results = [
                 self._bind(case).run(times=self._times_for(case)) for case in self.cases
             ]
+        evaluation.reference_coverage = self._reference_coverage(evaluation.behavior_results)
 
         if self.lint_enabled:
             evaluation.lint_report = build_report(doc, run_checks(doc))
@@ -491,6 +509,30 @@ class SkillEvaluationBuilder:
             return case.times
         fallback_llm = self.agent_llm or self.judge
         return 1 if _is_deterministic(case, fallback_llm) else DEFAULT_TIMES
+
+    def _reference_coverage(self, results: list[CaseResult]) -> list[dict[str, Any]] | None:
+        """Universe = registered refs ∪ SKILL.md scan; reached = tool-call hits
+        across behavior traces. None when the universe is empty."""
+        from smelt.refpath import calls_reading
+
+        declared = sorted({r for res in results for r in res.references})
+        scanned = _scan_skill_refs(self._read_document())
+        universe = sorted(set(declared) | set(scanned))
+        if not universe:
+            return None
+        return [
+            {
+                "path": p,
+                "reached": sum(
+                    len(calls_reading(res.trace, p))
+                    for res in results
+                    if res.trace is not None
+                ),
+                "origin": ("both" if p in declared and p in scanned
+                           else "declared" if p in declared else "scanned"),
+            }
+            for p in universe
+        ]
 
 
 def _is_deterministic(case: SmeltCase, fallback_llm: LLMClient | None) -> bool:

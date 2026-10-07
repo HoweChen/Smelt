@@ -277,3 +277,96 @@ def test_mock_tool_intercepts_matching_path(tmp_path):
     assert mocked.spec()["parameters"] == read_file.spec()["parameters"]
     assert mocked.invoke({"path": "references/endpoints.md"}) == ""
     assert mocked.invoke({"path": str(real)}) == "real content"  # non-matching delegates
+
+
+# ---------------------------------------------------------------------------
+# Task 6: evaluate reference coverage + compare integration
+# ---------------------------------------------------------------------------
+
+from smelt import evaluate_skill
+
+
+def test_evaluate_reference_coverage(tmp_path):
+    skill = _skill(tmp_path)  # has references/a.md, references/b.md
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: x\n---\n"
+        "Read [a](references/a.md) when needed; also see `references/missing-from-cases.md`.",
+        encoding="utf-8",
+    )
+    reader = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/a.md"}}])
+    case = (
+        new_case("uses-a")
+        .given(reference_folder(skill))
+        .given(reader)
+        .when(text("go"))
+        .then(reference_read("references/a.md"))
+    )
+    evaluation = (
+        evaluate_skill(skill)
+        .with_cases(case)
+        .with_lint(False)
+        .with_writing(enabled=False)
+        .with_suggestions(enabled=False)
+        .with_times(1)
+        .run()
+    )
+    coverage = {c["path"]: c for c in evaluation.reference_coverage}
+    assert coverage["references/a.md"]["reached"] == 1 and coverage["references/a.md"]["origin"] == "both"
+    assert coverage["references/b.md"]["reached"] == 0
+    assert coverage["references/missing-from-cases.md"]["origin"] == "scanned"
+    md = evaluation.to_markdown()
+    assert "## Reference Coverage" in md and "unreached" in md
+
+
+def test_evaluate_coverage_omitted_without_references(tmp_path):
+    # a skill whose SKILL.md mentions no references/ scripts/ assets/ paths
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "SKILL.md").write_text(
+        "---\nname: plain\ndescription: x\n---\nNo resources here.", encoding="utf-8"
+    )
+    case = new_case("c").given(fixed_agent("done")).when(text("go")).then(output_equals("done"))
+    evaluation = (
+        evaluate_skill(plain).with_cases(case)
+        .with_lint(False).with_writing(enabled=False).with_suggestions(enabled=False).with_times(1).run()
+    )
+    assert evaluation.reference_coverage is None
+    assert "Reference Coverage" not in evaluation.to_markdown()
+
+
+def test_compare_coverage_changes(tmp_path):
+    base_payload = {
+        "skill": {"name": "v1"}, "overall": {"score": 80.0}, "behavior": [],
+        "reference_coverage": [{"path": "references/a.md", "reached": 1, "origin": "both"}],
+    }
+    cand_payload = {
+        "skill": {"name": "v2"}, "overall": {"score": 80.0}, "behavior": [],
+        "reference_coverage": [{"path": "references/a.md", "reached": 0, "origin": "both"}],
+    }
+    from smelt import compare
+
+    result = compare(base_payload, cand_payload)
+    assert result.coverage_changes == ["references/a.md: reached → unreached"]
+    assert not result.has_regression  # informational only
+    assert "reached → unreached" in result.to_markdown()  # rendered for humans
+
+
+def test_references_survive_repeated_aggregation(tmp_path):
+    skill = _skill(tmp_path)
+    agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/a.md"}}])
+    case = (
+        new_case("rep")
+        .given(reference_folder(skill))
+        .given(agent)
+        .when(text("go"))
+        .then(reference_read("references/a.md"))
+    )
+    evaluation = (
+        evaluate_skill(skill).with_cases(case)
+        .with_lint(False).with_writing(enabled=False).with_suggestions(enabled=False)
+        .with_times(3).run()
+    )
+    # aggregation keeps the last ok run's registered references
+    assert evaluation.behavior_results[0].references  # non-empty
+    coverage = {c["path"]: c for c in evaluation.reference_coverage}
+    assert coverage["references/a.md"]["reached"] >= 1

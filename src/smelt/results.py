@@ -64,6 +64,7 @@ class CaseResult:
     run_scores: list[float] = field(default_factory=list)  # per-run case scores; empty when runs == 1
     run_errors: list[str] = field(default_factory=list)  # errors of crashed runs (partial failures)
     run_passed: list[bool] = field(default_factory=list)  # per-run pass flags; empty when runs == 1
+    references: list[str] = field(default_factory=list)  # registered reference paths (from context)
 
     @property
     def score(self) -> float:

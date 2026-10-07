@@ -74,6 +74,7 @@ class CompareResult:
     min_delta: float = 0.05
     baseline_overall: float | None = None
     candidate_overall: float | None = None
+    coverage_changes: list[str] = field(default_factory=list)  # informational reached→unreached transitions
 
     @property
     def regressions(self) -> list[CaseDiff]:
@@ -110,6 +111,7 @@ class CompareResult:
             "overall_diff": self.overall_diff,
             "min_delta": self.min_delta,
             "has_regression": self.has_regression,
+            "coverage_changes": self.coverage_changes,
             "counts": counts,
             "cases": [d.to_dict() for d in self.cases],
         }
@@ -139,6 +141,9 @@ class CompareResult:
             diff = f"{d.diff:+.2f}" if d.diff is not None else "-"
             lines.append(f"| {d.case} | {b} | {c} | {diff} | {marks[d.verdict]} | {d.reason} |")
         lines.append("")
+        if self.coverage_changes:
+            lines.append("**Reference coverage changes:** " + "; ".join(self.coverage_changes))
+            lines.append("")
         if self.has_regression:
             lines.append(f"**Regressions:** {', '.join(d.case for d in self.regressions)}")
             lines.append("")
@@ -220,6 +225,16 @@ def compare(baseline: Any, candidate: Any, *, min_delta: float = 0.05) -> Compar
     cand_cases = {c["case"]: c for c in cand.get("behavior") or []}
     names = list(dict.fromkeys([*base_cases, *cand_cases]))  # stable union order
 
+    def _reached(payload: dict[str, Any]) -> dict[str, bool]:
+        return {c["path"]: c.get("reached", 0) > 0 for c in (payload.get("reference_coverage") or [])}
+
+    base_reach, cand_reach = _reached(base), _reached(cand)
+    changes = [
+        f"{p}: reached → unreached"
+        for p in base_reach
+        if base_reach[p] and not cand_reach.get(p, False)
+    ]
+
     return CompareResult(
         baseline_name=base.get("skill", {}).get("name", "baseline"),
         candidate_name=cand.get("skill", {}).get("name", "candidate"),
@@ -227,4 +242,5 @@ def compare(baseline: Any, candidate: Any, *, min_delta: float = 0.05) -> Compar
         min_delta=min_delta,
         baseline_overall=base.get("overall", {}).get("score"),
         candidate_overall=cand.get("overall", {}).get("score"),
+        coverage_changes=changes,
     )

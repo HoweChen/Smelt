@@ -229,11 +229,13 @@ def compare(baseline: Any, candidate: Any, *, min_delta: float = 0.05) -> Compar
         return {c["path"]: c.get("reached", 0) > 0 for c in (payload.get("reference_coverage") or [])}
 
     base_reach, cand_reach = _reached(base), _reached(cand)
-    changes = [
-        f"{p}: reached → unreached"
-        for p in base_reach
-        if base_reach[p] and not cand_reach.get(p, False)
-    ]
+    changes = []
+    if "reference_coverage" in cand:  # pre-feature reports carry no coverage key — never fabricate changes
+        changes = [
+            f"{p}: reached → unreached"
+            for p in base_reach
+            if base_reach[p] and not cand_reach.get(p, False)
+        ]
 
     return CompareResult(
         baseline_name=base.get("skill", {}).get("name", "baseline"),

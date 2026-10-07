@@ -42,12 +42,15 @@ from smelt.tools import Tool
 # backends (fixed_agent / ScriptedLLM) auto-degrade to a single run.
 DEFAULT_TIMES = 3
 
-_REF_SCAN_RE = re.compile(r"(?:\]\(|`)((?:references|scripts|assets)/[^)`\s]+)")
+_REF_SCAN_RE = re.compile(r"(?:\]\(|`)((?:\./)?(?:references|scripts|assets)/[^)`\s]+)")
 
 
 def _scan_skill_refs(document: str) -> list[str]:
-    """Referenced resource paths in markdown links / inline code spans."""
-    return sorted(set(_REF_SCAN_RE.findall(document)))
+    """Referenced resource paths in markdown links / inline code spans;
+    normalized (./ stripped, trailing punctuation dropped)."""
+    from smelt.refpath import normalize_ref_path
+
+    return sorted({normalize_ref_path(m).rstrip(".,;:!?") for m in _REF_SCAN_RE.findall(document)})
 
 # ---------------------------------------------------------------------------
 # Data model

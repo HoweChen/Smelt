@@ -82,11 +82,11 @@ def mock_tool(base: Tool, results: Mapping[str, Any]) -> Tool:
     return the mapped value instead of calling the real handler. For
     content-level robustness tests (empty / broken / stale reference content) —
     NOT for with/without ablation (there, simply don't mount)."""
-    from smelt.refpath import ref_path_matches
+    from smelt.refpath import _iter_strings, ref_path_matches
 
     def handler(**kwargs: Any) -> Any:
         for key, value in results.items():
-            if any(isinstance(v, str) and ref_path_matches(v, key) for v in kwargs.values()):
+            if any(ref_path_matches(v, key) for v in _iter_strings(kwargs)):
                 return value
         return base.handler(**kwargs)
 

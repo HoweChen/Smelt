@@ -59,9 +59,13 @@ def no_reference_read(path: str, *, threshold: float = 1.0) -> NoReferenceReadEx
 
 def _fingerprint_lines(file: Path, *, max_lines: int = 5, min_len: int = 20) -> list[str]:
     """Up to max_lines distinctive content lines (>= min_len chars), spread
-    across the file — the proof of 'content entered the context'."""
+    across the file — the proof of 'content entered the context'. Falls back
+    to the whole stripped content for short files."""
     lines = [ln.strip() for ln in file.read_text(encoding="utf-8").splitlines()]
     lines = [ln for ln in lines if len(ln) >= min_len]
+    if not lines:
+        whole = file.read_text(encoding="utf-8").strip()
+        return [whole] if whole else []
     if len(lines) <= max_lines:
         return lines
     step = len(lines) / max_lines
@@ -94,8 +98,14 @@ class ReferenceUntouchedExpectation:
         if not real.exists():
             return _result(self.name, 0.0, self.threshold, f"source not found: {real}")
         fingerprint = _fingerprint_lines(real)
+        if not fingerprint:
+            return _result(self.name, 0.0, self.threshold,
+                           f"cannot fingerprint {real}: no distinctive content")
         for c in trace.tool_calls:
-            payload = "" if c.result is None else json.dumps(c.result, ensure_ascii=False, default=str)
+            if c.result is None:
+                continue
+            # raw string results match fingerprints verbatim; other types via JSON
+            payload = c.result if isinstance(c.result, str) else json.dumps(c.result, ensure_ascii=False, default=str)
             for line in fingerprint:
                 if line in payload:
                     return _result(self.name, 0.0, self.threshold,

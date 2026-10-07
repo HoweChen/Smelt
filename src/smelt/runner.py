@@ -124,10 +124,17 @@ def _aggregate(name: str, results: list[CaseResult]) -> CaseResult:
         ))
 
     last = ok[-1]
+    merged_trace = None
+    if last.trace is not None:
+        # merge every successful run's tool calls so coverage/detection sees all runs
+        merged_trace = replace(
+            last.trace,
+            tool_calls=[c for r in ok for c in (r.trace.tool_calls if r.trace else [])],
+        )
     return CaseResult(
         case_name=name,
         expectations=aggregated,
-        trace=last.trace,
+        trace=merged_trace,
         workspace=last.workspace,
         runs=len(results),
         run_scores=run_scores,

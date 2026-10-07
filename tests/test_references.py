@@ -370,3 +370,94 @@ def test_references_survive_repeated_aggregation(tmp_path):
     assert evaluation.behavior_results[0].references  # non-empty
     coverage = {c["path"]: c for c in evaluation.reference_coverage}
     assert coverage["references/a.md"]["reached"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Audit fixes: coverage across runs, fingerprint robustness, path spellings
+# ---------------------------------------------------------------------------
+
+from smelt import compare
+from smelt.trace import ToolCallRecord
+
+
+def test_coverage_merges_traces_across_runs(tmp_path):
+    """A reference read in run 1 of 3 must still count as reached."""
+    skill = _skill(tmp_path)
+
+    class SometimesReads:
+        def __init__(self):
+            self.calls = 0
+
+        def run(self, ctx, input):
+            self.calls += 1
+            if self.calls == 1:
+                return Trace(output="done", tool_calls=[
+                    ToolCallRecord(name="read_file", arguments={"path": "references/a.md"}),
+                ])
+            return Trace(output="done")
+
+    case = (
+        new_case("sometimes")
+        .given(reference_folder(skill))
+        .given(SometimesReads())
+        .when(text("go"))
+        .then(output_equals("done"))
+    )
+    evaluation = (
+        evaluate_skill(skill).with_cases(case)
+        .with_lint(False).with_writing(enabled=False).with_suggestions(enabled=False)
+        .with_times(3).run()
+    )
+    coverage = {c["path"]: c for c in evaluation.reference_coverage}
+    assert coverage["references/a.md"]["reached"] >= 1
+
+
+def test_fingerprint_matches_raw_string_result_with_quotes(tmp_path):
+    d = tmp_path / "skills" / "q"
+    (d / "references").mkdir(parents=True)
+    content = 'He said "the limit parameter goes up to 100" loudly.'
+    (d / "references" / "q.md").write_text(content, encoding="utf-8")
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "run_command", "arguments": {"cmd": "grep -r limit ."}, "result": content},
+    ])
+    result = new_case("quotes").given(agent).when(text("go")).then(
+        reference_untouched("references/q.md", source=d)).run()
+    assert not result.passed  # raw-string results must be fingerprint-checked too
+
+
+def test_short_reference_falls_back_to_whole_content(tmp_path):
+    d = tmp_path / "skills" / "s"
+    (d / "references").mkdir(parents=True)
+    (d / "references" / "tiny.md").write_text("alpha\nbeta\n", encoding="utf-8")  # no line >= 20 chars
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "run_command", "arguments": {"cmd": "cat x"}, "result": "alpha\nbeta"},
+    ])
+    result = new_case("tiny").given(agent).when(text("go")).then(
+        reference_untouched("references/tiny.md", source=d)).run()
+    assert not result.passed  # fallback fingerprint catches the leak
+
+
+def test_backslash_path_spelling_detected():
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "read_file", "arguments": {"path": "references\\endpoints.md"}},
+    ])
+    result = new_case("win").given(agent).when(text("go")).then(reference_read("references/endpoints.md")).run()
+    assert result.passed  # Windows-style separators count
+
+
+def test_nested_list_argument_detected():
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "read_many", "arguments": {"paths": ["references/endpoints.md"]}},
+    ])
+    result = new_case("nested").given(agent).when(text("go")).then(reference_read("references/endpoints.md")).run()
+    assert result.passed  # strings nested in lists/dicts count
+
+
+def test_compare_ignores_coverage_when_candidate_lacks_key():
+    base_payload = {
+        "skill": {"name": "v1"}, "overall": {"score": 80.0}, "behavior": [],
+        "reference_coverage": [{"path": "references/a.md", "reached": 1, "origin": "both"}],
+    }
+    cand_payload = {"skill": {"name": "v2"}, "overall": {"score": 80.0}, "behavior": []}  # pre-feature report
+    result = compare(base_payload, cand_payload)
+    assert result.coverage_changes == []  # no spurious changes against old reports

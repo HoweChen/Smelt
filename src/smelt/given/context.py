@@ -21,12 +21,15 @@ class ContextSpec:
     - ``env``: variables injected into the tool execution environment.
     - ``prompt``: context text appended to the system prompt (background, etc.).
     - ``vars``: free-form variables passed through to agents / assertions.
+    - ``references``: registered workspace-relative reference paths
+      (set by reference()/reference_folder(); empty for plain contexts).
     """
 
     files: tuple[tuple[Path, Path], ...] = ()
     env: Mapping[str, str] = field(default_factory=dict)
     prompt: str | None = None
     vars: Mapping[str, Any] = field(default_factory=dict)
+    references: tuple[str, ...] = ()
 
     def merge(self, other: ContextSpec) -> ContextSpec:
         return ContextSpec(
@@ -34,6 +37,7 @@ class ContextSpec:
             env={**self.env, **other.env},
             prompt="\n\n".join(p for p in (self.prompt, other.prompt) if p) or None,
             vars={**self.vars, **other.vars},
+            references=self.references + other.references,
         )
 
 
@@ -75,6 +79,7 @@ class CaseContext:
     env: dict[str, str] = field(default_factory=dict)
     prompt: str | None = None
     vars: dict[str, Any] = field(default_factory=dict)
+    references: list[str] = field(default_factory=list)  # registered reference paths
 
     def materialize(self, specs: list[ContextSpec]) -> None:
         for spec in specs:
@@ -82,6 +87,7 @@ class CaseContext:
                 self._copy_into(src, dst)
             self.env.update(spec.env)
             self.vars.update(spec.vars)
+            self.references.extend(spec.references)
             if spec.prompt:
                 self.prompt = "\n\n".join(p for p in (self.prompt, spec.prompt) if p)
 

@@ -14,6 +14,7 @@ from smelt.given.agents import (
 )
 from smelt.given.context import CaseContext, ContextSpec, context
 from smelt.given.fragments import LLMSpec, SkillSpec, ToolsSpec, llm, skill, tools
+from smelt.given.references import reference, reference_folder
 
 __all__ = [
     "Agent",
@@ -32,6 +33,8 @@ __all__ = [
     "context",
     "fixed_agent",
     "llm",
+    "reference",
+    "reference_folder",
     "skill",
     "smelt_agent",
     "tools",

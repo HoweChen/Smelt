@@ -137,3 +137,51 @@ def test_reference_folder_empty_resources_registers_nothing(tmp_path):
     captured = {}
     new_case("empty").given(reference_folder(d)).given(_spy(captured)).when(text("go")).run()
     assert captured["refs"] == []
+
+
+# ---------------------------------------------------------------------------
+# Task 3: reference_read / no_reference_read
+# ---------------------------------------------------------------------------
+
+from smelt import no_reference_read, reference_read
+
+
+def test_reference_read_matches_any_tool_and_spelling():
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "run_command", "arguments": {"cmd": "cat ./references/endpoints.md"}},
+    ])
+    result = (
+        new_case("reach")
+        .given(agent)
+        .when(text("go"))
+        .then(reference_read("references/endpoints.md"))
+        .run()
+    )
+    assert result.passed  # matched via a shell command arg with ./ spelling
+
+
+def test_reference_read_detects_absolute_escape():
+    agent = fixed_agent("done", tool_calls=[
+        {"name": "read_file", "arguments": {"path": "/real/disk/skills/x/references/endpoints.md"}},
+    ])
+    result = new_case("escape").given(agent).when(text("go")).then(reference_read("references/endpoints.md")).run()
+    assert result.passed  # escape attempt is detected, not missed
+
+
+def test_reference_read_fails_when_unread():
+    result = (
+        new_case("miss")
+        .given(fixed_agent("done"))
+        .when(text("go"))
+        .then(reference_read("references/endpoints.md"))
+        .run()
+    )
+    assert not result.passed
+
+
+def test_no_reference_read():
+    ok = new_case("r1").given(fixed_agent("done")).when(text("go")).then(no_reference_read("references/x.md")).run()
+    assert ok.passed
+    bad_agent = fixed_agent("done", tool_calls=[{"name": "read_file", "arguments": {"path": "references/x.md"}}])
+    bad = new_case("r2").given(bad_agent).when(text("go")).then(no_reference_read("references/x.md")).run()
+    assert not bad.passed

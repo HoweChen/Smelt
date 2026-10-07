@@ -31,25 +31,36 @@ checks, coverage, and ablation. `smelt_agent(mount_resources=True)` is
 dropped (subsumed).
 
 Division of labor with `context(files=)`: context mounts **task inputs**
-(files the user hands the agent); `references()` mounts **skill resources**
+(files the user hands the agent); `reference()` / `reference_folder()` mount **skill resources**
 (with registration semantics). They coexist.
 
 ## Phase 1 — assertion layer
 
-### 1.1 `references()` given fragment
+### 1.1 `reference()` / `reference_folder()` given fragments
 
 ```python
-.given(references("skills/reddit"))                                # mount + register the whole skill dir's resources
-.given(references("skills/reddit", only=["references/endpoints.md"]))  # precise subset / ablation
+.given(reference("skills/reddit/references/endpoints.md"))   # one file — precise subset / ablation
+.given(reference_folder("skills/reddit"))                    # everything at once: references/, scripts/, assets/
+.given(reference_folder("skills/reddit/references"))         # or point at a subdir directly
 ```
 
-Implementation: a `ContextSpec` subclass/factory — mounts `references/`,
-`scripts/`, `assets/` (whichever exist; `only=` filters to the listed
-workspace-relative paths) into the case workspace at the same relative paths,
-and records the mounted set into `CaseContext.references` (new field,
-`tuple[str, ...]`, normalized posix paths). Missing skill dir → FileNotFoundError
-at materialize time (consistent with context(files=)); empty resources →
-registered set is empty.
+Two fragments instead of one `only=`-parameterized function — the common case
+("load all references") gets its own obvious name, the precise case stays
+minimal:
+
+- `reference(path)`: mounts exactly one file into the workspace at its
+  skill-relative path, registers it.
+- `reference_folder(dir)`: if the dir IS a skill root (has a SKILL.md), mounts
+  its `references/`, `scripts/`, `assets/` subdirectories (whichever exist);
+  otherwise mounts the directory's contents recursively as-is. Registers every
+  mounted file.
+
+Implementation: a `ContextSpec` factory — mounts into the case workspace at
+the same relative paths, and records the mounted set into
+`CaseContext.references` (new field, `tuple[str, ...]`, normalized posix
+paths). Missing dir/file → FileNotFoundError at materialize time (consistent
+with context(files=)); a skill root with no resource dirs → registered set is
+empty.
 
 ### 1.2 `no_tool_call(name, args=None)`
 
@@ -63,7 +74,7 @@ Tool-name-agnostic: a "reference read" = any tool call carrying a string
 argument that, normalized (posix, strip leading `./`, workspace-relative),
 equals or ends with the given path. Rationale: skills say "read
 references/x.md" without prescribing the tool (`read_file`, `read`, `cat`…).
-Binary scoring, like `no_tool_call`. When the case declared `references(...)`,
+Binary scoring, like `no_tool_call`. When the case declared `reference(...)` / `reference_folder(...)`,
 both assertions also verify the path is within the declared set — reading an
 undeclared file still satisfies `reference_read` (the behavior happened) but
 adds a message note "not in declared references"; `no_reference_read` is
@@ -74,7 +85,7 @@ unchanged by declaration.
 ### 2.1 Declared + scanned universe
 
 The reference universe for a skill = ∪ of every case's declared
-`references(...)` set ∪ static scan of the SKILL.md body (markdown links and
+`reference*` declarations set ∪ static scan of the SKILL.md body (markdown links and
 inline-code spans targeting `references/`, `scripts/`, `assets/`). The scan
 catches references no case declared (under-tested surface).
 
@@ -102,7 +113,7 @@ Informational only — does not affect case verdicts or `has_regression`.
 ## Data flow
 
 ```
-given(references(...)) ──declare──┐
+given(reference(...) / reference_folder(...)) ──declare──┐
                                   ├─► universe ─┐
 SKILL.md ──static scan───────────┘              ├─► coverage table → report / compare
 case traces ──tool calls──► reached files ──────┘
@@ -110,8 +121,8 @@ case traces ──tool calls──► reached files ──────┘
 
 ## Error handling
 
-- `references()` with a missing skill dir → FileNotFoundError at materialize;
-  `only=` naming nonexistent files → FileNotFoundError listing them.
+- `reference()` / `reference_folder()` with a missing file/dir → FileNotFoundError at
+  materialize, naming the missing path.
 - Unparseable SKILL.md links ignored (best-effort scan).
 - 1.3 normalization mismatches (absolute vs relative spellings) are covered by
   tests; no silent misclassification.

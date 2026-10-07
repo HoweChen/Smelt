@@ -94,19 +94,30 @@ class ToolCallExpectation:
 
 @dataclass(frozen=True)
 class NoToolCallExpectation:
-    """Assert a tool was never called (negative assertion)."""
+    """Assert a tool was never called (optionally: never with an argument subset).
+
+    ``args=None`` keeps name-only semantics; with ``args`` a violation is a call
+    matching the name AND the argument subset."""
 
     tool_name: str
+    args: Mapping[str, Any] | None = None
     threshold: float = 1.0
 
     @property
     def name(self) -> str:
+        if self.args:
+            return f"no_tool_call({self.tool_name}, args={dict(self.args)})"
         return f"no_tool_call({self.tool_name})"
 
     def evaluate(self, trace: Trace) -> ExpectationResult:
         calls = trace.calls_named(self.tool_name)
+        if self.args is not None:
+            calls = [c for c in calls if _args_match(c.arguments, self.args)]
         if calls:
-            return _result(self.name, 0.0, self.threshold, f"{self.tool_name} was called {len(calls)} time(s)")
+            msg = f"{self.tool_name} was called {len(calls)} time(s)"
+            if self.args:
+                msg += f" with {dict(self.args)}"
+            return _result(self.name, 0.0, self.threshold, msg)
         return _result(self.name, 1.0, self.threshold)
 
 
@@ -120,8 +131,14 @@ def tool_call(
     return ToolCallExpectation(tool_name=name, args=args, threshold=threshold)
 
 
-def no_tool_call(name: str, *, threshold: float = 1.0) -> NoToolCallExpectation:
-    return NoToolCallExpectation(tool_name=name, threshold=threshold)
+def no_tool_call(
+    name: str,
+    args: Mapping[str, Any] | None = None,
+    *,
+    threshold: float = 1.0,
+) -> NoToolCallExpectation:
+    """then(no_tool_call("read_file", args={"path": "references/x.md"}))."""
+    return NoToolCallExpectation(tool_name=name, args=args, threshold=threshold)
 
 
 # ---------------------------------------------------------------------------

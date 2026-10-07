@@ -99,6 +99,7 @@ are never overridden by the file.
 | helper | description |
 |---|---|
 | `context(files=..., prompt=..., env=..., vars=...)` | fixture files/dirs copied into an isolated workspace; env injected into tool execution; prompt appended to the system prompt; stackable and merged |
+| `reference(path)` / `reference_folder(dir)` | mount skill resources (references/ scripts/ assets/) into the workspace **and register them** — declaration doubles as registration for coverage reporting |
 | `smelt_agent(skill, llm=..., tools=[...])` | built-in agent: loads SKILL.md as the system prompt, runs the "LLM → tool → feedback" loop |
 | `fixed_agent(output, tool_calls=[...])` | fixed-output agent: replays a preconfigured trace without an LLM — for assertion self-tests and baseline regression |
 | custom | implement the `Agent` protocol (`run(ctx, input) -> Trace`) to plug into every assertion |
@@ -121,6 +122,33 @@ are never overridden by the file.
 | `json_output(schema, contains={...})` | parseable 0.4 + schema 0.4 + field subset 0.2; full JSON Schema with `smelt[json]` installed |
 | `llm_judge(judge, criteria=..., reference=..., threshold=0.8)` | LLM-as-judge: a judge model scores the output 0~1 against a rubric |
 | `turns_used(max=N)` / `tool_budget(name, max=N)` / `wall_time(max_seconds=S)` | budget gates: agent loop turns / tool call count / wall-clock time — deterministic, binary |
+| `reference_read(path)` / `no_reference_read(path)` | reference reach / restraint — tool-name-agnostic path matching (absolute and `../` spellings detected) |
+| `reference_untouched(path, source=...)` | ablation validity: proves via content fingerprint that the reference never entered the context |
+
+### Testing references (progressive disclosure level 3)
+
+Skills with depth in `references/` need three distinct probes:
+
+```python
+# reach — the task needs it, so the agent must consult it
+.then(reference_read("references/endpoints.md"))
+# restraint — not needed here, so it stays unread
+.then(no_reference_read("references/performance.md"))
+# ablation validity — in a WITHOUT arm, prove the content never leaked in
+.then(reference_untouched("references/endpoints.md", source="skills/reddit"))
+```
+
+**With/without ablation** (measuring what a reference contributes): the without
+arm simply does not mount the reference — never mount an empty file instead
+(empty ≠ absent; it confounds the measurement). For the cleanest counterfactual,
+also drop the pointer sentence from the skill prompt via `skill(prompt=...)`.
+Diff the two arms with `compare()` to get the lift. Content-level mocks for
+robustness testing use `mock_tool(read_file, {"references/x.md": ""})`.
+
+`evaluate_skill` reports a **Reference Coverage** section: every referenced
+file (registered by `reference*` declarations ∪ scanned from SKILL.md) marked
+reached/unreached across all behavior cases; `compare()` surfaces
+reached→unreached transitions between versions.
 
 ### Budget assertions (operating envelopes)
 

@@ -3,6 +3,30 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] - 2026-10-07
+
+Reference-first testing: skills whose depth lives in `references/` are now
+fully testable — reach, restraint, ablation validity, and coverage.
+
+### Added
+
+- **`reference(path)` / `reference_folder(dir)`** given fragments — mount skill
+  resources (references/, scripts/, assets/) into the workspace at
+  skill-relative paths and register them; declaration doubles as registration.
+- **`reference_read(path)` / `no_reference_read(path)`** — tool-name-agnostic
+  reach/restraint assertions; absolute-path and `../` escape spellings are
+  detected, not missed.
+- **`reference_untouched(path, source=...)`** — ablation validity: proves via
+  content fingerprint that a reference never entered the context (catches
+  detour leaks through shell tools and flags parametric-memory contamination).
+- **`no_tool_call(name, args={...})`** — args-level negation.
+- **`mock_tool(tool, {path: result})`** — content-level mocking for robustness
+  tests (empty/broken/stale reference content); not for ablation.
+- **Reference Coverage** in `evaluate_skill` reports (markdown + JSON): every
+  referenced file (declared ∪ scanned from SKILL.md) marked reached/unreached;
+  `compare()` surfaces reached→unreached transitions as `coverage_changes`.
+- Example: `examples/cases/reference_cases.py` (reach / restraint / without-arm).
+
 ## [0.3.1] - 2026-10-06
 
 ### Added

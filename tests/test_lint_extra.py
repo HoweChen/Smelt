@@ -306,3 +306,41 @@ def test_render_json_includes_fix_only_when_present():
     msgs = json.loads(render_json([report]))[0]["checks"][0]["messages"]
     assert msgs[0]["fix"] == "do a"
     assert "fix" not in msgs[1]
+
+
+# ---------------------------------------------------------------------------
+# metadata: Anthropic frontmatter compliance
+# ---------------------------------------------------------------------------
+
+
+def _meta_doc(tmp_path, name="ok-name", description="Processes reports. Use when the user asks for a weekly summary."):
+    # path includes the name so the existing name==dir rule does not fire
+    return SkillDoc(
+        path=tmp_path / name / "SKILL.md",
+        name=name,
+        description=description,
+        frontmatter={"name": name, "description": description},
+        body="body",
+    )
+
+
+def test_metadata_rejects_underscore_name(tmp_path):
+    result = MetadataCheck().run(_meta_doc(tmp_path, name="my_skill"))
+    assert any("lowercase letters, numbers and hyphens" in m.text and m.severity == Severity.ERROR for m in result.messages)
+
+
+def test_metadata_rejects_long_and_reserved_names(tmp_path):
+    result = MetadataCheck().run(_meta_doc(tmp_path, name="claude-" + "x" * 60))
+    assert any("exceeding 64" in m.text for m in result.messages)
+    assert any("reserved word" in m.text for m in result.messages)
+
+
+def test_metadata_flags_first_person_description(tmp_path):
+    result = MetadataCheck().run(_meta_doc(tmp_path, description="I can help you process Excel files and generate reports."))
+    assert any("third person" in m.text and m.severity == Severity.WARNING for m in result.messages)
+
+
+def test_metadata_accepts_compliant_frontmatter(tmp_path):
+    result = MetadataCheck().run(_meta_doc(tmp_path))
+    assert result.messages == []
+    assert result.score == 100.0

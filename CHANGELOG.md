@@ -3,6 +3,21 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- **doctor: context mounts are rebound for mutation runs** — cases mounting
+  the skill's resources via `reference()` / `reference_folder()` (or any
+  `context(files=...)` source under the skill root) previously kept pointing
+  at the *original* skill directory after `rebind_for_mutation()`. A
+  `drop_reference` mutant deleted the file only in its copy while the case
+  still mounted the original, so the mutant was guaranteed to survive and the
+  mutation score was silently distorted. Mounts under the skill root are now
+  re-pointed at the pristine/mutated copy; a mount whose source the mutant
+  removed is dropped, so the case runs without that file — exactly the change
+  it is supposed to notice.
+
 ## [0.5.0] - 2026-10-08
 
 ### Added

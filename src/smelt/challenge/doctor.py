@@ -160,13 +160,14 @@ def doctor(
     # -- mutation check -------------------------------------------------------
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
+        source_root = skill_path if skill_path.is_dir() else skill_path.parent
         pristine = tmp_path / "pristine"
-        shutil.copytree(skill_path if skill_path.is_dir() else skill_path.parent, pristine)
+        shutil.copytree(source_root, pristine)
 
         rebound: list[tuple[SmeltCase, SmeltCase]] = []
         skipped = 0
         for c in all_cases:
-            r = rebind_for_mutation(c, pristine, doctor, tools)
+            r = rebind_for_mutation(c, pristine, doctor, tools, source_root=source_root)
             if r is None:
                 skipped += 1
             else:
@@ -222,7 +223,7 @@ def doctor(
                 for orig, _ in green:
                     if killed_by and (mutant.id, orig.name) not in needed_cells:
                         continue  # suite-level short-circuit; cell not needed for attribution
-                    mutant_case = rebind_for_mutation(orig, dest, doctor, tools)
+                    mutant_case = rebind_for_mutation(orig, dest, doctor, tools, source_root=source_root)
                     if mutant_case is None:
                         continue
                     res = run([mutant_case], dest, 1)[0]

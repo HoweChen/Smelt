@@ -1,8 +1,10 @@
 """tests/test_doctor.py"""
+import tempfile
 from pathlib import Path
 
 from smelt import LLMResponse, ScriptedLLM
 from smelt.challenge.doctor import doctor
+from smelt.given.context import CaseContext
 from smelt.results import CaseResult, ExpectationResult
 
 SKILL_MD = """---
@@ -116,3 +118,32 @@ def test_mixed_green_and_red_baselines(tmp_path):
     assert report.red_baselines == ["red"]
     assert report.mutation_score == 1.0  # the green case kills every mutant
     assert not report.ok  # a red baseline is itself a health issue
+
+
+def test_drop_reference_killed_through_reference_folder_mount(tmp_path):
+    # The case mounts the skill's references via reference_folder(original dir).
+    # Rebinding must re-point the mount at the mutant copy, otherwise the
+    # workspace still serves the original file and drop_reference is blind.
+    skill = make_skill(tmp_path)
+    (skill / "references").mkdir()
+    (skill / "references" / "secret.md").write_text("s3cret content", encoding="utf-8")
+    f = tmp_path / "cases.py"
+    f.write_text(
+        "from smelt import new_case, reference_folder, text, tool_call\n"
+        f"c = new_case('c1').given(reference_folder({str(skill)!r}))"
+        ".when(text('go')).then(tool_call('run_command'))\n",
+        encoding="utf-8",
+    )
+
+    def _run(cases, skill_dir, times=None):
+        out = []
+        for c in cases:
+            ctx = CaseContext(workspace=Path(tempfile.mkdtemp()))
+            ctx.materialize(list(c.contexts))
+            score = 1.0 if (ctx.workspace / "references" / "secret.md").exists() else 0.0
+            out.append(CaseResult(case_name=c.name, expectations=[ExpectationResult("e", score, 0.5)]))
+        return out
+
+    report = doctor([f], skill=skill, doctor=flat_judge(), _run=_run)
+    verdicts = {m.mutant.id: m.verdict for m in report.mutants}
+    assert verdicts["drop_reference:references/secret.md"] == "killed"

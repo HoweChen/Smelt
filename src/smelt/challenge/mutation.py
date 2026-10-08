@@ -117,6 +117,7 @@ def apply_mutant(skill: Path, mutant: Mutant, dest_root: Path) -> Path | None:
 
 from smelt.case import SmeltCase
 from smelt.given.agents.smelt import SmeltAgent
+from smelt.given.context import ContextSpec
 from smelt.results import CaseResult
 
 
@@ -132,10 +133,20 @@ def rebind_for_mutation(
     skill_dir: Path,
     doctor_llm,
     tools,
+    *,
+    source_root: Path | None = None,
 ) -> SmeltCase | None:
     """Return the case re-pointed at a mutated skill copy; None when the case
     cannot perceive mutations (deterministic backend, custom agent, or
-    fragment-bound skill)."""
+    fragment-bound skill).
+
+    ``source_root`` is the ORIGINAL skill directory. When given, context file
+    mounts (reference()/reference_folder()/context(files=...)) that point
+    under it are re-pointed at ``skill_dir`` — otherwise a drop_reference
+    mutant deletes the file only in the copy while the case still mounts the
+    original, making the mutation invisible. A mount whose source the mutant
+    removed is dropped: the case then runs without that file, which is
+    exactly the change it is supposed to notice."""
     from dataclasses import replace
 
     from smelt.evaluate import _is_deterministic
@@ -149,6 +160,8 @@ def rebind_for_mutation(
         if any(isinstance(f, SkillSpec) for f in case.fragments):
             return None
         return None  # v1: fragment-assembled agents are not rebound
+    if source_root is not None and case.contexts:
+        case = replace(case, contexts=_rebind_contexts(case.contexts, source_root, skill_dir))
     agent = case.agent
     if agent is None:
         return case.given(SmeltAgent(skill=str(skill_dir), llm=doctor_llm, tools=tools))
@@ -164,3 +177,31 @@ def rebind_for_mutation(
             ),
         )
     return None  # custom Agent: opaque, cannot rebind
+
+
+def _rebind_contexts(
+    contexts: tuple[ContextSpec, ...],
+    source_root: Path,
+    skill_dir: Path,
+) -> tuple[ContextSpec, ...]:
+    """Re-point file mounts living under the original skill root at the
+    (possibly mutated) copy; mounts outside the root are left untouched."""
+    from dataclasses import replace
+
+    root = source_root.resolve()
+    rebound = []
+    for spec in contexts:
+        files = []
+        for src, dst in spec.files:
+            try:
+                rel = src.resolve().relative_to(root)
+            except ValueError:
+                files.append((src, dst))  # unrelated mount: keep as-is
+                continue
+            remapped = skill_dir / rel
+            if remapped.exists():
+                files.append((remapped, dst))
+            # else: the mutant removed this source — mount nothing, so the
+            # case perceives the deletion instead of a FileNotFoundError.
+        rebound.append(replace(spec, files=tuple(files)))
+    return tuple(rebound)

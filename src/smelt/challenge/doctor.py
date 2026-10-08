@@ -42,6 +42,7 @@ class DoctorReport:
     mutation_score: float | None = None  # None = N/A (deterministic backend)
     false_guards: list[str] = field(default_factory=list)
     dangling_guards: list[str] = field(default_factory=list)
+    red_baselines: list[str] = field(default_factory=list)  # cases failing against the UNMUTATED skill
     canary: CanaryResult | None = None
     notes: list[str] = field(default_factory=list)
     min_score: float = 0.8
@@ -49,7 +50,7 @@ class DoctorReport:
 
     @property
     def ok(self) -> bool:
-        if self.false_guards or self.dangling_guards:
+        if self.false_guards or self.dangling_guards or self.red_baselines:
             return False
         if self.canary is not None and not self.canary.calibrated:
             return False
@@ -68,6 +69,7 @@ class DoctorReport:
             ],
             "false_guards": self.false_guards,
             "dangling_guards": self.dangling_guards,
+            "red_baselines": self.red_baselines,
             "canary": (
                 {"score": self.canary.score, "calibrated": self.canary.calibrated, "reason": self.canary.reason}
                 if self.canary else None
@@ -96,6 +98,9 @@ class DoctorReport:
             lines.append(f"\n⚠ false guard: {g}")
         for g in self.dangling_guards:
             lines.append(f"\n⚠ dangling guard: {g}")
+        for r in self.red_baselines:
+            lines.append(f"\n⚠ red baseline: {r} — fails against the unmutated skill; "
+                         "fix the skill (or the case) first, mutation verdicts ignore it")
         if self.canary is not None:
             state = "calibrated ✔" if self.canary.calibrated else "MISCALIBRATED ✘"
             lines.append(f"\n## Judge canary: {state} (score {self.canary.score:.2f})")
@@ -177,12 +182,35 @@ def doctor(
                 report.notes.append(f"{skipped} case(s) skipped (deterministic backend or custom agent)")
             baselines = {c.name: res for (c, r), res in zip(rebound, run([r for _, r in rebound], pristine, None))}
 
+            # Classic mutation testing requires a GREEN baseline: a case that
+            # already fails against the unmutated skill cannot prove anything
+            # about mutations — exclude it from kill attribution and flag it.
+            green = [(orig, r) for (orig, r) in rebound if baselines[orig.name].passed]
+            report.red_baselines = [orig.name for (orig, _) in rebound if not baselines[orig.name].passed]
+            for name in report.red_baselines:
+                report.notes.append(
+                    f"case '{name}' fails at baseline ({baselines[name].score:.2f}) — "
+                    "fix the skill (or the case) first; mutation verdicts ignore it"
+                )
+
             needed_cells: set[tuple[str, str]] = set()  # (mutant_id, case_name) for guard attribution
+            green_names = {orig.name for orig, _ in green}
             for case_name, spec in guards.items():
+                if case_name not in green_names:
+                    if case_name in baselines:
+                        report.notes.append(
+                            f"guard(s) on '{case_name}' unverifiable: baseline is red"
+                        )
+                    continue
                 for g in spec.guards:
                     needed_cells.add((f"drop_{g}", case_name))
 
-            mutants = generate_mutants(pristine)
+            if not green:
+                report.mutation_score = None
+                report.notes.append("mutation check N/A: every case fails at baseline")
+                mutants = []
+            else:
+                mutants = generate_mutants(pristine)
             results: list[MutantResult] = []
             for mutant in mutants:
                 dest = apply_mutant(pristine, mutant, tmp_path / "mutants")
@@ -191,7 +219,7 @@ def doctor(
                     continue
                 killed_by: list[str] = []
                 cell_cache: dict[str, CaseResult] = {}
-                for orig, _ in rebound:
+                for orig, _ in green:
                     if killed_by and (mutant.id, orig.name) not in needed_cells:
                         continue  # suite-level short-circuit; cell not needed for attribution
                     mutant_case = rebind_for_mutation(orig, dest, doctor, tools)
@@ -209,7 +237,7 @@ def doctor(
                 results.append(MutantResult(mutant=mutant, verdict=verdict,
                                             killed_by=tuple(killed_by), note=note))
                 # guard attribution: a guarded case must kill its declared mutant itself
-                for orig, _ in rebound:
+                for orig, _ in green:
                     if (
                         (mutant.id, orig.name) in needed_cells
                         and orig.name not in killed_by

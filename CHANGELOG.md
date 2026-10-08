@@ -36,6 +36,15 @@ All notable changes to Smelt are documented here. Format follows
   opts out; `SMELT_CHALLENGER_*` configures the challenger.
 - **`compare()` challenge note** — informational breaks-count diff between
   two reports; never counts as a regression.
+- **doctor: red baselines are flagged separately** — a case that fails
+  against the *unmutated* skill can no longer masquerade as a surviving
+  mutant. It is excluded from kill attribution, listed under
+  `red_baselines` (failing the health check), its guard claims are marked
+  unverifiable instead of false, and the mutation score becomes N/A when no
+  green case remains.
+- **CLI evaluate judge resolution uses the role quartet** — `--judge-*`
+  flags and `SMELT_JUDGE_*` now resolve through `LLMConfig.from_role`, so a
+  role-scoped `SMELT_JUDGE_API_KEY` works without the legacy shared key.
 
 ### Changed
 

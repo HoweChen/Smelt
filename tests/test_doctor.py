@@ -83,3 +83,36 @@ def test_canary_miscalibrated_marks_not_ok(tmp_path):
                     doctor=bad_judge, _run=score_run(1.0))
     assert report.canary is not None and not report.canary.calibrated
     assert not report.ok
+
+
+def test_red_baseline_cases_excluded_and_flagged(tmp_path):
+    # Case fails against the UNMUTATED skill (score 0.0) → red baseline:
+    # excluded from kill attribution, flagged, mutation verdicts are N/A.
+    report = doctor([make_case_file(tmp_path)], skill=make_skill(tmp_path),
+                    doctor=flat_judge(), _run=score_run(0.0))
+    assert report.red_baselines == ["c1"]
+    assert report.mutation_score is None
+    assert any("baseline" in n for n in report.notes)
+    assert not report.ok
+
+
+def test_mixed_green_and_red_baselines(tmp_path):
+    f = tmp_path / "cases.py"
+    f.write_text(
+        "from smelt import new_case, text, tool_call\n"
+        "a = new_case('green').when(text('commit')).then(tool_call('run_command'))\n"
+        "b = new_case('red').when(text('commit')).then(tool_call('run_command'))\n",
+        encoding="utf-8",
+    )
+
+    def _run(cases, skill_dir, times=None):
+        out = []
+        for c in cases:
+            score = 0.0 if c.name == "red" else (1.0 if skill_dir.name == "pristine" else 0.0)
+            out.append(CaseResult(case_name=c.name, expectations=[ExpectationResult("e", score, 0.5)]))
+        return out
+
+    report = doctor([f], skill=make_skill(tmp_path), doctor=flat_judge(), _run=_run)
+    assert report.red_baselines == ["red"]
+    assert report.mutation_score == 1.0  # the green case kills every mutant
+    assert not report.ok  # a red baseline is itself a health issue

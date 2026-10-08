@@ -10,7 +10,7 @@ Usage::
         .with_cases(case_a, case_b)            # behavior cases (unbound cases auto-bind the skill under review)
         .with_lint()                           # static lint score
         .with_writing()                        # LLM writing review (per dimension)
-        .with_suggestions(max_items=5)         # LLM improvement suggestions
+        .with_suggestions(max_items=5)         # code-first improvement suggestions (LLM adds semantic ones)
         .with_weights(behavior=0.5, writing=0.3, lint=0.2)
         .run()
     )
@@ -309,10 +309,8 @@ class SkillEvaluation:
 # ---------------------------------------------------------------------------
 
 DEFAULT_DIMENSIONS: tuple[str, ...] = (
-    "Metadata & naming (does name/description accurately capture the purpose)",
-    "Trigger guidance (can an agent tell when to load this skill)",
-    "Structure & readability (sectioning, length control)",
-    "Examples & edge cases (concrete examples, failure-path notes)",
+    "Semantic accuracy (does the name/description capture what the skill actually does)",
+    "Examples & edge cases (examples are correct and cover failure paths)",
     "Actionability (steps are explicit, executable, unambiguous)",
 )
 

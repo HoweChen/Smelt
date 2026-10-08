@@ -317,8 +317,9 @@ Requires `smelt[langchain-openai]` or `smelt[langchain-anthropic]`.
 
 Produce a full evaluation report for a skill: **behavior score** (then-case
 results) + **writing score** (per-dimension LLM review of SKILL.md) + **lint
-score** (static checks), weighted into an overall grade (A–F), with LLM-generated
-improvement suggestions from all the evidence. Fully code-driven:
+score** (static checks), weighted into an overall grade (A–F), with improvement
+suggestions generated code-first from lint findings (the judge LLM only adds
+semantic suggestions on top). Fully code-driven:
 
 ```python
 from smelt import evaluate_skill, new_case, text, tool_call
@@ -349,8 +350,9 @@ The markdown/JSON reports carry `runs`, `run_scores` and `score_std` per case.
 
 Report sections: overview (overall/grade/parts) → behavior details (per-then
 score vs threshold) → static lint table → writing review table (dimension /
-score / comment) → prioritized suggestions. Without a judge, writing and
-suggestions degrade gracefully to "skipped" without blocking other parts.
+score / comment) → prioritized suggestions. Without a judge, the writing review
+is skipped and suggestions are derived from lint findings alone, so a checklist
+report is always produced.
 
 ### Comparing skill versions (compare)
 

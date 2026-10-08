@@ -354,3 +354,9 @@ def test_markdown_empty_state_when_nothing_to_suggest():
 def test_markdown_not_enabled_state_preserved():
     evaluation = evaluate_skill(GOOD).with_suggestions(enabled=False).run()
     assert "(not enabled)" in evaluation.to_markdown()
+
+
+def test_default_dimensions_focus_on_semantics():
+    assert len(DEFAULT_DIMENSIONS) == 3
+    joined = " ".join(DEFAULT_DIMENSIONS).lower()
+    assert "semantic" in joined and "examples" in joined and "actionability" in joined

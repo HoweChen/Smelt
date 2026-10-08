@@ -3,6 +3,31 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **lint messages carry fix hints** — every finding now says how to remediate
+  it, surfaced in text/markdown/json reports (` → fix` suffix, `"fix"` JSON
+  key when present).
+- **New static checks from Anthropic's skill-authoring checklist** —
+  metadata: name charset/reserved-word rules, third-person description;
+  structure: heading-skip and multiple-H1 warnings; clarity: 500-line body
+  budget, unannotated code fences; assets: backslash paths, broken `#anchor`
+  links, nested references (one-level-deep rule).
+
+### Changed
+
+- **Suggestions are code-first** — lint findings become checklist items
+  without a judge; the judge LLM only adds suggestions for behavior/writing
+  evidence, and is skipped entirely when there is nothing semantic to add.
+  No-judge runs now always produce a suggestion list.
+- **Default writing dimensions narrowed to 3 semantic ones** (semantic
+  accuracy, examples & edge cases, actionability); trigger guidance and
+  structure are covered statically now.
+- **examples/good_skill renamed to good-skill** to comply with the name
+  charset rule it now enforces.
+
 ## [0.4.2] - 2026-10-08
 
 ### Fixed

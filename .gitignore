@@ -8,6 +8,9 @@ dist/
 # uv / venv
 .venv/
 
+# local secrets (role-based LLM config template lives in git history; real .env stays local)
+.env
+
 # test & coverage
 .pytest_cache/
 .coverage

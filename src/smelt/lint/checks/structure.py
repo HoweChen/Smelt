@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 from smelt.lint.checks.base import Check
+from smelt.lint.markdown import headings
 from smelt.lint.models import CheckResult, Message, Severity, SkillDoc
 
 MIN_SECTIONS = 2
@@ -54,6 +57,27 @@ class StructureCheck(Check):
                     Severity.WARNING,
                     f"body is ~{skill.word_count} words; aim for at least {IDEAL_MIN_WORDS}",
                     fix="expand thin sections with concrete detail",
+                )
+            )
+            score -= 10
+
+        heads = headings(skill.body)
+        if sum(1 for lvl, _ in heads if lvl == 1) > 1:
+            messages.append(
+                Message(
+                    Severity.WARNING,
+                    "multiple H1 headings; use one H1 as the document title",
+                    fix="demote extra H1 headings to H2",
+                )
+            )
+            score -= 10
+        levels = [lvl for lvl, _ in heads]
+        for a, b in [(a, b) for a, b in pairwise(levels) if b > a + 1][:3]:
+            messages.append(
+                Message(
+                    Severity.WARNING,
+                    f"heading level skips from H{a} to H{b}",
+                    fix="introduce the intermediate heading level(s)",
                 )
             )
             score -= 10

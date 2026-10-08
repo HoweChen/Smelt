@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from smelt.lint.checks.metadata import MetadataCheck
+from smelt.lint.checks.structure import StructureCheck
 from smelt.lint.loader import (
     SkillLoadError,
     _parse_simple_yaml,
@@ -344,3 +345,39 @@ def test_metadata_accepts_compliant_frontmatter(tmp_path):
     result = MetadataCheck().run(_meta_doc(tmp_path))
     assert result.messages == []
     assert result.score == 100.0
+
+
+# ---------------------------------------------------------------------------
+# structure: heading hygiene
+# ---------------------------------------------------------------------------
+
+
+def _struct_doc(tmp_path, body):
+    # three H2s in `sections` so the existing "few sections" WARNING stays silent
+    return SkillDoc(
+        path=tmp_path / "SKILL.md",
+        name="s",
+        description="d",
+        frontmatter={},
+        body=body,
+        sections=[(2, "A"), (2, "B"), (2, "C")],
+        word_count=300,
+    )
+
+
+def test_structure_flags_heading_level_skip(tmp_path):
+    body = "# T\n\n## A\n\n#### Deep\n\n## B\n"
+    result = StructureCheck().run(_struct_doc(tmp_path, body))
+    assert any("H2 to H4" in m.text for m in result.messages)
+
+
+def test_structure_flags_multiple_h1(tmp_path):
+    body = "# T\n\n## A\n\n# Second title\n\n## B\n"
+    result = StructureCheck().run(_struct_doc(tmp_path, body))
+    assert any("multiple H1" in m.text for m in result.messages)
+
+
+def test_structure_ignores_hashes_in_code_fences(tmp_path):
+    body = "# T\n\n## A\n\n```sh\n# comment\n## x\n```\n\n## B\n"
+    result = StructureCheck().run(_struct_doc(tmp_path, body))
+    assert result.messages == []

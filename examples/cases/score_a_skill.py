@@ -95,9 +95,7 @@ judge_llm = ScriptedLLM([
     '{"score": 0.9, "reason": "highlights complete and accurate"}',
     (
         '{"dimensions": ['
-        '{"name": "Metadata & naming", "score": 0.9, "comment": "accurate description"},'
-        '{"name": "Trigger guidance", "score": 0.85, "comment": "clear trigger scenarios"},'
-        '{"name": "Structure & readability", "score": 0.9, "comment": "well structured"},'
+        '{"name": "Semantic accuracy", "score": 0.9, "comment": "accurate description"},'
         '{"name": "Examples & edge cases", "score": 0.5, "comment": "no note on missing input files"},'
         '{"name": "Actionability", "score": 0.85, "comment": "steps are executable"}],'
         '"overall_comment": "good; add edge-case handling"}'

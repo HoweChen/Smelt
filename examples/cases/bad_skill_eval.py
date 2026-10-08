@@ -93,9 +93,7 @@ budget_fail = (
 judge = ScriptedLLM([
     (
         '{"dimensions": ['
-        '{"name": "Metadata & naming", "score": 0.2, "comment": "description \\"does stuff\\" is meaningless"},'
-        '{"name": "Trigger guidance", "score": 0.1, "comment": "no trigger scenarios; a TODO marker remains"},'
-        '{"name": "Structure & readability", "score": 0.4, "comment": "minimal structure, dangling link"},'
+        '{"name": "Semantic accuracy", "score": 0.2, "comment": "description \\"does stuff\\" is meaningless"},'
         '{"name": "Examples & edge cases", "score": 0.0, "comment": "none at all"},'
         '{"name": "Actionability", "score": 0.3, "comment": "over-reads references; points at a missing file"}],'
         '"overall_comment": "rewrite the description and fix the dangling reference"}'

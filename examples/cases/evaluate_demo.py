@@ -19,9 +19,7 @@ judge = ScriptedLLM([
     # writing-review response
     (
         '{"dimensions": ['
-        '{"name": "Metadata & naming", "score": 0.95, "comment": "name and description capture the purpose well"},'
-        '{"name": "Trigger guidance", "score": 0.9, "comment": "trigger scenarios well covered"},'
-        '{"name": "Structure & readability", "score": 0.85, "comment": "clear sections"},'
+        '{"name": "Semantic accuracy", "score": 0.95, "comment": "name and description capture the purpose well"},'
         '{"name": "Examples & edge cases", "score": 0.6, "comment": "missing a failure-path example"},'
         '{"name": "Actionability", "score": 0.8, "comment": "steps are explicit but some commands lack parameter notes"}],'
         '"overall_comment": "good quality; add failure-path examples"}'

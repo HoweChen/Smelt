@@ -332,7 +332,7 @@ report = (
     )
     .with_lint()                              # static lint part (on by default)
     .with_writing(dimensions=[...])           # LLM writing review, custom dimensions (on by default)
-    .with_suggestions(max_items=5)            # LLM improvement suggestions (on by default)
+    .with_suggestions(max_items=5)            # code-first checklist suggestions (LLM adds semantic ones)
     .with_weights(behavior=0.5, writing=0.3, lint=0.2)  # adjustable weights
     .with_times(3)                            # repeat count for behavior cases (see below)
     .run()

@@ -19,7 +19,7 @@ Minimal example::
         result.assert_passed()
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.2"
 
 from smelt.case import SmeltCase, new_case
 from smelt.compare import CaseDiff, CompareResult, compare

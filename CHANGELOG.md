@@ -3,6 +3,25 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.2] - 2026-10-08
+
+### Fixed
+
+- **lint assets: markdown link targets no longer flagged as missing** —
+  `PROSE_PATH_RE` re-matched the target of `[text](references/x.md)` as
+  `references/x.md)` (trailing paren included), producing phantom
+  `referenced file does not exist` errors for every markdown-linked file.
+  Link and image targets are now resolved through a CommonMark parser
+  (markdown-it-py), and the prose-path scan runs on plain-text segments and
+  code blocks only. Reference-style links are covered as a bonus.
+- **lint clarity: `{{...}}` no longer flags template syntax in code blocks** —
+  the placeholder regex scanned the raw body, so Vue/Svelte interpolation
+  shown in fenced examples read as "unfilled placeholder". The `{{...}}`
+  pattern now scans prose segments only; TODO/FIXME-style markers still scan
+  the full body, code blocks included.
+- **`__version__` synced with pyproject.toml** (0.4.0 → 0.4.1), guarded by a
+  test comparing the two.
+
 ## [0.4.1] - 2026-10-07
 
 ### Fixed

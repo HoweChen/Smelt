@@ -5,12 +5,16 @@ from __future__ import annotations
 import re
 
 from smelt.lint.checks.base import Check
+from smelt.lint.markdown import prose_segments
 from smelt.lint.models import CheckResult, Message, Severity, SkillDoc
 
-PLACEHOLDERS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r"\{\{.*?\}\}"), "template placeholder {{...}}"),
-    (re.compile(r"\b(TODO|FIXME|TBD|XXX)\b"), "unfinished marker (TODO/FIXME/TBD/XXX)"),
-    (re.compile(r"<[a-z ]*(your|placeholder|example)[^>]*>", re.IGNORECASE), "example placeholder tag"),
+# (pattern, label, skip_code): skip_code=True patterns are matched against
+# prose only, so template syntax shown in code examples (e.g. Vue's
+# {{ interpolation }}) is not mistaken for an unfilled placeholder
+PLACEHOLDERS: list[tuple[re.Pattern, str, bool]] = [
+    (re.compile(r"\{\{.*?\}\}"), "template placeholder {{...}}", True),
+    (re.compile(r"\b(TODO|FIXME|TBD|XXX)\b"), "unfinished marker (TODO/FIXME/TBD/XXX)", False),
+    (re.compile(r"<[a-z ]*(your|placeholder|example)[^>]*>", re.IGNORECASE), "example placeholder tag", False),
 ]
 
 MAX_WORDS = 3000
@@ -26,8 +30,10 @@ class ClarityCheck(Check):
         score = 100.0
 
         found: list[str] = []
-        for pat, label in PLACEHOLDERS:
-            if pat.search(skill.body):
+        prose = "\n".join(prose_segments(skill.body))
+        for pat, label, skip_code in PLACEHOLDERS:
+            haystack = prose if skip_code else skill.body
+            if pat.search(haystack):
                 found.append(label)
         if found:
             messages.append(Message(Severity.ERROR, f"found unfilled content: {', '.join(found)}"))

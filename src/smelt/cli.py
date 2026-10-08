@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -57,17 +56,12 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 
     _auto_load()
     judge = None
-    judge_model = args.judge_model or os.environ.get("SMELT_JUDGE_MODEL")
-    if judge_model:
-        try:
-            from smelt.given.agents.llm import OpenAIChatClient
-
-            judge = OpenAIChatClient(judge_model, base_url=args.base_url)
-        except ImportError as e:
-            print(f"✘ {e}", file=sys.stderr)
-            return 2
-    elif args.writing or args.suggestions:
-        print("ℹ no --judge-model: writing review will be marked as skipped; suggestions will be lint-derived", file=sys.stderr)
+    try:
+        judge = _role_client(args, "judge")
+    except Exception:  # noqa: BLE001 - no judge degrades writing/suggestions gracefully
+        judge = None
+    if judge is None and (args.writing or args.suggestions):
+        print("ℹ no judge configured: writing review will be marked as skipped; suggestions will be lint-derived", file=sys.stderr)
 
     challenger = None
     try:
@@ -181,8 +175,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ev = sub.add_parser("evaluate", help="evaluate a skill: behavior + writing + lint scores + suggestions")
     ev.add_argument("path", type=Path, help="skill directory or SKILL.md path")
     ev.add_argument("--cases", type=Path, nargs="*", default=None, help="behavior case files (.py)")
-    ev.add_argument("--judge-model", default=None, help="judge model name (OpenAI-compatible API); falls back to SMELT_JUDGE_MODEL")
-    ev.add_argument("--base-url", default=None, help="base_url for the judge model")
+    ev.add_argument("--judge-model", default=None, help="judge model name; falls back to SMELT_JUDGE_MODEL")
+    ev.add_argument("--base-url", dest="judge_base_url", default=None, help="base_url for the judge model")
+    ev.add_argument("--judge-provider", default=None)
+    ev.add_argument("--judge-api-key", default=None)
     ev.add_argument("--output", type=Path, default=None, help="report output path (.json → JSON, otherwise Markdown)")
     ev.add_argument("--fail-under", type=float, default=60.0, help="exit non-zero below this score (default 60)")
     ev.add_argument("--no-lint", dest="lint", action="store_false", help="disable the static lint part")

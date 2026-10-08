@@ -202,7 +202,7 @@ def test_cli_evaluate_reads_judge_model_from_env(monkeypatch, capsys):
 
     from smelt.cli import main
 
-    code = main(["evaluate", GOOD, "--no-lint", "--no-suggestions"])
+    code = main(["evaluate", GOOD, "--no-lint", "--no-suggestions", "--no-challenge"])
     assert code == 0
     assert captured["model"] == "judge-from-env"
     assert "no --judge-model" not in capsys.readouterr().err

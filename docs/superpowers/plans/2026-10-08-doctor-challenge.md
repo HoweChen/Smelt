@@ -30,6 +30,9 @@
 
 **Files:**
 - Create: `src/smelt/llm_config.py`
+- Modify: `src/smelt/env.py` (module docstring only: mention the role-based
+  `SMELT_<ROLE>_<KEY>` quartet as the primary scheme, legacy shared keys as
+  common fallback)
 - Test: `tests/test_llm_config.py`
 
 **Interfaces:**
@@ -546,7 +549,9 @@ def rebind_for_mutation(
     from smelt.evaluate import _is_deterministic
     from smelt.given.fragments import SkillSpec
 
-    if _is_deterministic(case, doctor_llm):
+    # NOTE: fallback is None on purpose — determinism is a property of the
+    # case's own agent/fragments, never of the doctor stand-in LLM.
+    if _is_deterministic(case, None):
         return None
     if case.fragments:
         if any(isinstance(f, SkillSpec) for f in case.fragments):
@@ -965,7 +970,7 @@ def make_case_file(tmp_path: Path) -> Path:
 
 
 def score_run(score: float):
-    def _run(cases, skill_dir):
+    def _run(cases, skill_dir, times=None):
         return [CaseResult(case_name=c.name,
                            expectations=[ExpectationResult("e", score, 0.5)]) for c in cases]
     return _run
@@ -977,9 +982,9 @@ def flat_judge():
 
 def test_all_mutants_killed(tmp_path):
     # Baseline 1.0; every mutant dir scores 0.0 → all killed → score 1.0, ok.
-    def _run(cases, skill_dir):
+    def _run(cases, skill_dir, times=None):
         score = 1.0 if skill_dir.name == "pristine" else 0.0
-        return score_run(score)(cases, skill_dir)
+        return score_run(score)(cases, skill_dir, times)
 
     report = doctor([make_case_file(tmp_path)], skill=make_skill(tmp_path),
                     doctor=flat_judge(), _run=_run)
@@ -1134,8 +1139,10 @@ class DoctorReport:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=indent)
 
 
-def _default_run(cases: list[SmeltCase], skill_dir: Path) -> list[CaseResult]:
-    return [c.run(times=1) for c in cases]
+def _default_run(cases: list[SmeltCase], skill_dir: Path, times: int | None = None) -> list[CaseResult]:
+    """Baseline runs honor the case's own repeat count (supplies σ for the
+    kill band); mutant runs pass times=1 (coarse screen)."""
+    return [c.run(times=times if times is not None else c.times) for c in cases]
 
 
 def doctor(
@@ -1145,13 +1152,14 @@ def doctor(
     doctor: LLMClient | None = None,
     min_score: float = 0.8,
     tools=(),
-    _run: Callable[[list[SmeltCase], Path], list[CaseResult]] | None = None,
+    _run: Callable[[list[SmeltCase], Path, int | None], list[CaseResult]] | None = None,
 ) -> DoctorReport:
     """Health-check a case suite (mutation) and the judge (canary).
 
-    ``_run`` is the case-running seam: it receives rebound cases and a skill
-    directory (the pristine copy or one mutant copy) and returns CaseResults
-    in order. Tests inject canned scores through it.
+    ``_run`` is the case-running seam: ``_run(cases, skill_dir, times)`` —
+    baseline calls pass times=None (honor each case's repeat count, supplying
+    σ for the kill band); mutant calls pass times=1. Tests inject canned
+    scores through it.
     """
     from smelt.llm_config import LLMConfig
 
@@ -1195,7 +1203,7 @@ def doctor(
         else:
             if skipped:
                 report.notes.append(f"{skipped} case(s) skipped (deterministic backend or custom agent)")
-            baselines = {c.name: res for (c, r), res in zip(rebound, run([r for _, r in rebound], pristine))}
+            baselines = {c.name: res for (c, r), res in zip(rebound, run([r for _, r in rebound], pristine, None))}
 
             needed_cells: set[tuple[str, str]] = set()  # (mutant_id, case_name) required for guard attribution
             for case_name, spec in guards.items():
@@ -1217,7 +1225,7 @@ def doctor(
                     mutant_case = rebind_for_mutation(orig, dest, doctor, tools)
                     if mutant_case is None:
                         continue
-                    res = run([mutant_case], dest)[0]
+                    res = run([mutant_case], dest, 1)[0]
                     cell_cache[orig.name] = res
                     if killed(baselines[orig.name], res):
                         killed_by.append(orig.name)
@@ -1241,6 +1249,12 @@ def doctor(
             report.mutation_score = killed_n / len(scorable) if scorable else None
 
     # -- judge canary ----------------------------------------------------------
+    from smelt.then import LLMJudgeExpectation
+
+    if all_cases and not any(
+        isinstance(e, LLMJudgeExpectation) for c in all_cases for e in c.expectations
+    ):
+        report.notes.append("canary is advisory: loaded cases use no llm_judge assertions")
     report.canary = run_canary(doctor)
     return report
 ```
@@ -1326,6 +1340,19 @@ def test_doctor_ok_exit_0(tmp_path, capsys):
     code = _cmd_doctor(args, doctor_llm=judge)
     assert code == 0  # deterministic case → mutation N/A, canary calibrated → ok
     assert "doctor" in capsys.readouterr().out
+
+
+def test_doctor_issues_exit_1(tmp_path, capsys):
+    from smelt import LLMResponse, ScriptedLLM
+
+    bad_judge = ScriptedLLM([LLMResponse.say('{"reason": "great", "score": 0.95}')])
+    skill, cases = _setup(tmp_path)
+    from smelt.cli import _cmd_doctor
+    import argparse
+
+    args = argparse.Namespace(cases=[cases], skill=skill, min_score=0.8, output=None)
+    code = _cmd_doctor(args, doctor_llm=bad_judge)
+    assert code == 1  # canary miscalibrated → issues found
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1335,7 +1362,9 @@ Expected: FAIL — `_cmd_doctor` does not exist
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/smelt/cli.py`, add after `_cmd_compare`:
+In `src/smelt/cli.py`, first add `from typing import Any` to the imports
+(argparse/importlib.util/os/sys/Path block — alphabetical: after `import sys`,
+add `from typing import Any`). Then add after `_cmd_compare`:
 
 ```python
 def _role_client(args: argparse.Namespace, role: str) -> Any:
@@ -1466,7 +1495,7 @@ CHANGELOG — add under a new `## Unreleased`:
 - [ ] **Step 4: Run tests**
 
 Run: `uv run pytest tests/test_doctor_cli.py -v && uv run pytest -q`
-Expected: 2 passed; full suite green (327+ passed)
+Expected: 3 passed; full suite green (328+ passed)
 
 - [ ] **Step 5: Commit**
 
@@ -1789,7 +1818,7 @@ git commit -m "feat: adversarial probe generation and execution"
 
 **Interfaces:**
 - Consumes: `challenge_skill`, `ChallengeResult` (Task 8).
-- Produces: `evaluate_skill(..., challenger=None)`; builder `.with_challenge(*, enabled=True, rounds=None, probes=None)`; `SkillEvaluation.challenge: ChallengeResult | None`; `with_weights(..., challenge=None)`; `SkillEvaluation.challenge_score`. Consumed by CLI (Task 10) and reports.
+- Produces: `evaluate_skill(..., challenger=None)`; builder `.with_challenge(*, enabled=True, rounds=None, probes=None)`; `SkillEvaluation.challenge: ChallengeResult | None`; `with_weights(..., challenge=None)`. Consumed by CLI (Task 10) and reports.
 
 - [ ] **Step 1: Write the failing test**
 

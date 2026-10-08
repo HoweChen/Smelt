@@ -175,8 +175,8 @@ def merge_commit_refusal(): ...
 
 ### R7. DoctorReport + output
 
-- Terminal output (default), plus `--output` (.json → JSON, else markdown),
-  under `.smelt/reports/doctor/` when no path given.
+- Terminal output (default), plus `--output` (.json → JSON, else markdown).
+  No implicit file write — reports are only persisted when `--output` is given.
 - Report content: case-suite health (cases tested, mutants, per-mutant
   verdicts, surviving mutants with a suggested case idea each, false guards,
   dangling guards), judge health (canary score + verdict), overall

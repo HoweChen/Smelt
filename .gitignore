@@ -26,3 +26,6 @@ examples/cases/_demo_fixture/
 .DS_Store
 .idea/
 .vscode/
+
+# worktrees
+.worktrees/

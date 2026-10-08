@@ -340,7 +340,7 @@ def test_evidence_no_longer_contains_lint_issues():
 
 def test_judge_skipped_when_code_suggestions_fill_max():
     judge = _judge(WRITING_JSON, SUGGESTIONS_JSON)
-    evaluation = evaluate_skill(BAD, judge=judge).with_suggestions(max_items=1).run()
+    evaluation = evaluate_skill(BAD, judge=judge).with_suggestions(max_items=1).with_challenge(enabled=False).run()
     assert len(evaluation.suggestions) == 1
     assert len(judge.calls) == 1  # only the writing review call
 

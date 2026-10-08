@@ -17,7 +17,7 @@ from smelt.evaluate import _scan_skill_refs
 
 _CONSTRAINT_RE = re.compile(r"(?i)\b(do not|don't|never|must not)\b|不要|禁止|切勿|不得")
 _REQUIREMENT_RE = re.compile(r"(?i)\b(must|always|required|be sure to)\b|必须|务必|总是")
-_SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.M)
+_SECTION_RE = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -115,9 +115,9 @@ def apply_mutant(skill: Path, mutant: Mutant, dest_root: Path) -> Path | None:
 # Kill verdict and case rebinding
 # ---------------------------------------------------------------------------
 
-from smelt.case import SmeltCase  # noqa: E402
-from smelt.given.agents.smelt import SmeltAgent  # noqa: E402
-from smelt.results import CaseResult  # noqa: E402
+from smelt.case import SmeltCase
+from smelt.given.agents.smelt import SmeltAgent
+from smelt.results import CaseResult
 
 
 def killed(baseline: CaseResult, mutant: CaseResult, *, min_delta: float = 0.05) -> bool:

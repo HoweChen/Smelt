@@ -1,5 +1,4 @@
 """tests/test_mutation_kill.py"""
-from pathlib import Path
 
 from smelt import LLMResponse, ScriptedLLM, fixed_agent, new_case, smelt_agent, text, tool_call
 from smelt.challenge.mutation import killed, rebind_for_mutation

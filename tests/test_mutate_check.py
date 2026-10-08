@@ -1,7 +1,7 @@
 """tests/test_mutate_check.py"""
 from pathlib import Path
 
-from smelt.challenge.guards import MutateSpec, find_dangling_guards, load_cases_and_guards, mutate_check
+from smelt.challenge.guards import MutateSpec, find_dangling_guards, load_cases_and_guards
 
 CASE_FILE = '''
 from smelt import new_case, text, tool_call

@@ -7,9 +7,10 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from smelt.case import SmeltCase
 from smelt.challenge.canary import CanaryResult, run_canary
@@ -52,9 +53,7 @@ class DoctorReport:
             return False
         if self.canary is not None and not self.canary.calibrated:
             return False
-        if self.mutation_score is not None and self.mutation_score < self.min_score:
-            return False
-        return True
+        return not (self.mutation_score is not None and self.mutation_score < self.min_score)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -211,11 +210,14 @@ def doctor(
                                             killed_by=tuple(killed_by), note=note))
                 # guard attribution: a guarded case must kill its declared mutant itself
                 for orig, _ in rebound:
-                    if (mutant.id, orig.name) in needed_cells and orig.name not in killed_by:
-                        if orig.name in cell_cache or killed_by:
-                            report.false_guards.append(
-                                f"{orig.name} claims {mutant.id!r} but did not kill it"
-                            )
+                    if (
+                        (mutant.id, orig.name) in needed_cells
+                        and orig.name not in killed_by
+                        and (orig.name in cell_cache or killed_by)
+                    ):
+                        report.false_guards.append(
+                            f"{orig.name} claims {mutant.id!r} but did not kill it"
+                        )
             scorable = [m for m in results if m.verdict != "invalid"]
             killed_n = sum(1 for m in scorable if m.verdict == "killed")
             report.mutants = results

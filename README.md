@@ -82,10 +82,16 @@ smelt.load_env()                              # apply now; otherwise auto-loaded
 ```
 
 ```dotenv
-# config/smelt.env
-SMELT_API_KEY=sk-...
-SMELT_BASE_URL=https://api.moonshot.cn/v1
+# config/smelt.env — role-based quartet; SMELT_<ROLE>_<KEY> wins, legacy
+# shared keys (SMELT_API_KEY / SMELT_BASE_URL / SMELT_LLM_PROVIDER) are the
+# common fallback. Roles: JUDGE, AGENT, DOCTOR, CHALLENGER.
+SMELT_JUDGE_PROVIDER=openai
+SMELT_JUDGE_BASE_URL=https://api.moonshot.cn/v1
+SMELT_JUDGE_API_KEY=sk-...
 SMELT_JUDGE_MODEL=kimi-k2
+SMELT_DOCTOR_PROVIDER=anthropic
+SMELT_DOCTOR_API_KEY=sk-ant-...
+SMELT_DOCTOR_MODEL=claude-sonnet-4-5
 ```
 
 All variables carry the `SMELT_` prefix. `OpenAIChatClient` falls back to
@@ -389,6 +395,30 @@ smelt evaluate skills/commit --cases cases.py \
     --judge-model kimi-k2 --base-url https://api.moonshot.cn/v1 \
     --output reports/commit.md --fail-under 80
 ```
+
+## Health-checking the yardstick (smelt doctor)
+
+Cases written by an agent can be false-green: they pass whether the skill is
+good or bad. `smelt doctor` questions the yardstick itself:
+
+```bash
+smelt doctor cases.py --skill skills/commit --min-score 0.8
+```
+
+- **Mutation check** — deliberately breaks the skill (drops one section /
+  reference / constraint at a time) and re-runs the cases. A case suite that
+  stays green against a broken skill is blind; the report lists surviving
+  mutants with a suggested case each. Mutation score = killed / scorable
+  mutants; kill verdicts use the same noise band as `compare()`.
+- **Judge canary** — feeds the judge one deliberately bad trace (off-topic +
+  hallucinated tool result); a calibrated judge scores it below 0.5.
+- **`@mutate_check(guards="section:Boundaries")`** — declare which skill part
+  a case guards; doctor verifies the case actually kills that mutant, and
+  flags false or dangling guard claims.
+
+Exit codes: 0 healthy · 1 issues found · 2 configuration error. The doctor
+agent is configured independently (`SMELT_DOCTOR_*`); if it is missing,
+doctor refuses to run (silent skipping would be false green).
 
 ## Per-case reports (.report / .report_cli)
 

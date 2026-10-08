@@ -22,6 +22,8 @@ Minimal example::
 __version__ = "0.4.2"
 
 from smelt.case import SmeltCase, new_case
+from smelt.challenge.doctor import DoctorReport, doctor
+from smelt.challenge.guards import mutate_check
 from smelt.compare import CaseDiff, CompareResult, compare
 from smelt.config import SmeltConfig, config, configure
 from smelt.env import load_env
@@ -55,6 +57,7 @@ from smelt.given import (
     smelt_agent,
     tools,
 )
+from smelt.llm_config import LLMConfig, LLMConfigError
 from smelt.report.suite import Suite, SuiteResult, suite
 from smelt.results import CaseResult, ExpectationResult
 from smelt.runner import run_case
@@ -88,10 +91,13 @@ __all__ = [
     "CompareResult",
     "ContextSpec",
     "DirectoryInput",
+    "DoctorReport",
     "Expectation",
     "ExpectationResult",
     "FixedAgent",
     "LLMClient",
+    "LLMConfig",
+    "LLMConfigError",
     "LLMJudgeExpectation",
     "LLMResponse",
     "LLMSpec",
@@ -119,6 +125,7 @@ __all__ = [
     "configure",
     "context",
     "directory",
+    "doctor",
     "evaluate_skill",
     "fixed_agent",
     "json_output",
@@ -126,6 +133,7 @@ __all__ = [
     "llm_judge",
     "load_env",
     "mock_tool",
+    "mutate_check",
     "new_case",
     "no_reference_read",
     "no_tool_call",

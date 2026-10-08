@@ -3,6 +3,25 @@
 All notable changes to Smelt are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+
+- **`smelt doctor`: mutation check for case suites + judge canary** — doctor
+  deliberately breaks the skill (drops one section / reference / constraint
+  at a time) and re-runs the cases; a suite that stays green against a broken
+  skill is blind. Kill verdicts use the `compare()` noise band. Ships with
+  `@mutate_check(guards=...)` guard declarations (per-case kill attribution,
+  false/dangling guard detection), a built-in judge canary (bad trace must
+  score below 0.5), and a `--min-score` CI gate. Exit codes: 0 healthy, 1
+  issues found, 2 configuration error (missing doctor agent is fatal — silent
+  skipping would be false green).
+- **Role-based LLM configuration (`LLMConfig.from_role`)** — each role
+  (judge / agent / doctor / challenger) resolves its own
+  provider / base_url / api_key / model quartet from `SMELT_<ROLE>_*`;
+  legacy shared `SMELT_API_KEY` / `SMELT_BASE_URL` / `SMELT_LLM_PROVIDER`
+  remain as common fallback.
+
 ## [0.4.2] - 2026-10-08
 
 ### Fixed

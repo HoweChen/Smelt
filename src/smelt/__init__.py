@@ -19,7 +19,7 @@ Minimal example::
         result.assert_passed()
 """
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 from smelt.case import SmeltCase, new_case
 from smelt.challenge.doctor import DoctorReport, doctor

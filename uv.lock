@@ -1333,7 +1333,7 @@ wheels = [
 
 [[package]]
 name = "smelt"
-version = "0.4.2"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "markdown-it-py" },

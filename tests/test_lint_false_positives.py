@@ -103,3 +103,54 @@ def test_clarity_todo_in_code_block_still_flagged(tmp_path):
 def test_version_matches_pyproject():
     data = tomllib.loads((ROOT / "pyproject.toml").read_text())
     assert smelt.__version__ == data["project"]["version"]
+
+
+# ---------------------------------------------------------------------------
+# assets: path hygiene, anchors, reference depth
+# ---------------------------------------------------------------------------
+
+
+def test_assets_flags_backslash_paths(tmp_path):
+    doc = _skill(tmp_path, "Run `scripts\\build.py` and see [doc](references\\x.md).")
+    result = AssetCheck().run(doc)
+    assert sum("forward slashes" in m.text for m in result.messages) == 2
+
+
+def test_assets_flags_unknown_anchor(tmp_path):
+    doc = _skill(
+        tmp_path,
+        "See [details](references/guide.md#nosuchsection).",
+        files=("references/guide.md",),
+    )
+    (tmp_path / "references" / "guide.md").write_text("# Real Section\n")
+    result = AssetCheck().run(doc)
+    assert any("nosuchsection" in m.text and "anchor" in m.text for m in result.messages)
+
+
+def test_assets_accepts_valid_anchor_with_github_slug_rules(tmp_path):
+    (tmp_path / "references").mkdir()
+    (tmp_path / "references" / "guide.md").write_text(
+        "## Risks & blockers\n\n## Risks & blockers\n"
+    )
+    doc = _skill(tmp_path, "See [a](references/guide.md#risks--blockers) and [b](references/guide.md#risks--blockers-1).")
+    result = AssetCheck().run(doc)
+    assert result.messages == []
+
+
+def test_assets_flags_nested_references(tmp_path):
+    doc = _skill(
+        tmp_path,
+        "See [deep](references/deep.md).",
+        files=("references/deep.md",),
+    )
+    (tmp_path / "references" / "deep.md").write_text("Details in [more](more.md).\n")
+    result = AssetCheck().run(doc)
+    assert any("one level deep" in m.text for m in result.messages)
+
+
+def test_assets_anchor_check_skips_missing_files_and_non_md(tmp_path):
+    doc = _skill(tmp_path, "See [gone](references/gone.md#x) and [script](scripts/s.py#main).")
+    result = AssetCheck().run(doc)
+    # missing-file errors fire; no anchor messages for either
+    assert any("references/gone.md" in m.text for m in result.messages)
+    assert not any("anchor" in m.text for m in result.messages)

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from smelt.lint.checks.clarity import ClarityCheck
 from smelt.lint.checks.metadata import MetadataCheck
 from smelt.lint.checks.structure import StructureCheck
 from smelt.lint.loader import (
@@ -380,4 +381,27 @@ def test_structure_flags_multiple_h1(tmp_path):
 def test_structure_ignores_hashes_in_code_fences(tmp_path):
     body = "# T\n\n## A\n\n```sh\n# comment\n## x\n```\n\n## B\n"
     result = StructureCheck().run(_struct_doc(tmp_path, body))
+    assert result.messages == []
+
+
+# ---------------------------------------------------------------------------
+# clarity: body line budget and fence language annotation
+# ---------------------------------------------------------------------------
+
+
+def test_clarity_flags_body_over_500_lines(tmp_path):
+    body = "\n".join(f"line {i}" for i in range(510))
+    result = ClarityCheck().run(SkillDoc(path=tmp_path / "SKILL.md", name="c", description="d", frontmatter={}, body=body))
+    assert any("exceeding 500" in m.text for m in result.messages)
+
+
+def test_clarity_flags_unannotated_code_like_fence(tmp_path):
+    body = "Example:\n\n```\ndef f():\n    return 1\n\nclass G:\n    pass\n```\n"
+    result = ClarityCheck().run(SkillDoc(path=tmp_path / "SKILL.md", name="c", description="d", frontmatter={}, body=body))
+    assert any("language annotation" in m.text for m in result.messages)
+
+
+def test_clarity_ignores_plain_text_fence(tmp_path):
+    body = "Layout:\n\n```\nskill/\n  SKILL.md\n  scripts/\n    run.py\n```\n"
+    result = ClarityCheck().run(SkillDoc(path=tmp_path / "SKILL.md", name="c", description="d", frontmatter={}, body=body))
     assert result.messages == []

@@ -66,7 +66,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
             print(f"✘ {e}", file=sys.stderr)
             return 2
     elif args.writing or args.suggestions:
-        print("ℹ no --judge-model: writing review and suggestions will be marked as skipped", file=sys.stderr)
+        print("ℹ no --judge-model: writing review will be marked as skipped; suggestions will be lint-derived", file=sys.stderr)
 
     builder = evaluate_skill(args.path, judge=judge)
     if args.cases:

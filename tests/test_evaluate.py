@@ -23,6 +23,7 @@ from smelt.evaluate import (
     WritingDimension,
     _build_evidence,
 )
+from smelt.lint.models import Severity
 
 ROOT = Path(__file__).resolve().parent.parent
 GOOD = ROOT / "examples" / "good-skill"
@@ -147,8 +148,10 @@ def test_writing_unparseable_judge_output():
     assert evaluation.writing is not None
     assert evaluation.writing.error is not None
     assert evaluation.writing_score is None
-    # suggestions still generated
-    assert evaluation.suggestions
+    # evidence is empty (good-skill is lint-clean, no behavior cases, writing
+    # review failed) — the suggestions judge is never called
+    assert evaluation.suggestions == []
+    assert evaluation.suggestions_error is None
 
 
 def test_writing_score_clamped_and_empty_dimensions():
@@ -292,3 +295,62 @@ def test_cli_evaluate_bad_path_and_bad_cases(tmp_path, capsys):
     bad_cases.write_text("raise RuntimeError('x')", encoding="utf-8")
     assert main(["evaluate", str(GOOD), "--cases", str(bad_cases), "--no-writing", "--no-suggestions"]) == 2
     assert "failed to load cases" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Code-first suggestions
+# ---------------------------------------------------------------------------
+
+
+def test_code_suggestions_from_lint_without_judge():
+    evaluation = evaluate_skill(BAD).with_suggestions().run()
+    assert evaluation.suggestions  # non-empty without any judge
+    assert evaluation.suggestions_error is None
+    assert all(s.startswith("[") and " → " in s for s in evaluation.suggestions)
+
+
+def test_code_suggestions_errors_before_warnings():
+    evaluation = evaluate_skill(BAD).with_suggestions().run()
+    report = evaluation.lint_report
+    severity_of = {m.text: m.severity for c in report.results for m in c.messages if m.fix}
+    texts = [s.split("] ", 1)[1].split(" → ")[0] for s in evaluation.suggestions]
+    severities = [severity_of[t] for t in texts]
+    first_non_error = next(
+        (i for i, s in enumerate(severities) if s is not Severity.ERROR),
+        len(severities),
+    )
+    assert all(s is Severity.ERROR for s in severities[:first_non_error])
+    assert all(s is not Severity.ERROR for s in severities[first_non_error:])
+
+
+def test_code_suggestions_precede_llm_suggestions():
+    judge = _judge(WRITING_JSON, SUGGESTIONS_JSON)
+    evaluation = evaluate_skill(BAD, judge=judge).with_suggestions(max_items=20).run()
+    code_prefix = [s for s in evaluation.suggestions if s.startswith("[")]
+    assert code_prefix == evaluation.suggestions[: len(code_prefix)]
+    assert any(not s.startswith("[") for s in evaluation.suggestions)  # LLM tail
+
+
+def test_evidence_no_longer_contains_lint_issues():
+    evaluation = evaluate_skill(BAD).run()
+    import json as _json
+
+    assert "lint_issues" not in _json.loads(_build_evidence(evaluation) or "{}")
+
+
+def test_judge_skipped_when_code_suggestions_fill_max():
+    judge = _judge(WRITING_JSON, SUGGESTIONS_JSON)
+    evaluation = evaluate_skill(BAD, judge=judge).with_suggestions(max_items=1).run()
+    assert len(evaluation.suggestions) == 1
+    assert len(judge.calls) == 1  # only the writing review call
+
+
+def test_markdown_empty_state_when_nothing_to_suggest():
+    evaluation = evaluate_skill(GOOD).run()  # no judge, clean skill
+    assert evaluation.suggestions == []
+    assert "nothing to suggest" in evaluation.to_markdown()
+
+
+def test_markdown_not_enabled_state_preserved():
+    evaluation = evaluate_skill(GOOD).with_suggestions(enabled=False).run()
+    assert "(not enabled)" in evaluation.to_markdown()

@@ -33,6 +33,7 @@ from smelt.given.agents.smelt import SmeltAgent, smelt_agent
 from smelt.given.fragments import LLMSpec
 from smelt.lint.checks import run_checks
 from smelt.lint.loader import load_skill
+from smelt.lint.models import Severity
 from smelt.lint.scorer import build_report, grade_of
 from smelt.results import CaseResult
 from smelt.then.expectations import _extract_json
@@ -94,6 +95,7 @@ class SkillEvaluation:
     writing: WritingAssessment | None = None
     suggestions: list[str] = field(default_factory=list)
     suggestions_error: str | None = None
+    suggestions_ran: bool = False  # True when suggestion generation executed (even if empty)
     weights: dict[str, float] = field(default_factory=dict)
     reference_coverage: list[dict[str, Any]] | None = None  # None when the skill references nothing
 
@@ -284,6 +286,8 @@ class SkillEvaluation:
             lines += [f"{i}. {s}" for i, s in enumerate(self.suggestions, 1)]
         elif self.suggestions_error:
             lines.append(f"Suggestion generation failed: {self.suggestions_error}")
+        elif self.suggestions_ran:
+            lines.append("No lint issues; nothing to suggest.")
         else:
             lines.append("(not enabled)")
         lines.append("")
@@ -375,12 +379,6 @@ def _build_evidence(evaluation: SkillEvaluation) -> str:
             }
             for r in evaluation.behavior_results
         ]
-    if evaluation.lint_report is not None:
-        evidence["lint_issues"] = [
-            f"[{c.check_id}] {m.text}"
-            for c in evaluation.lint_report.results
-            for m in c.messages
-        ]
     if evaluation.writing and evaluation.writing.dimensions:
         evidence["weak_writing_dimensions"] = [
             {"dimension": d.name, "score": d.score, "comment": d.comment}
@@ -388,6 +386,16 @@ def _build_evidence(evaluation: SkillEvaluation) -> str:
             if d.score < 0.8
         ]
     return json.dumps(evidence, ensure_ascii=False, indent=2) or "{}"
+
+
+def _code_suggestions(lint_report: Any, max_items: int) -> list[str]:
+    """Deterministic suggestions from lint messages that carry a fix hint,
+    errors first (stable within severity: check order is preserved)."""
+    if lint_report is None:
+        return []
+    ordered = [(c.check_id, m) for c in lint_report.results for m in c.messages if m.fix]
+    ordered.sort(key=lambda cm: 0 if cm[1].severity is Severity.ERROR else 1)
+    return [f"[{check_id}] {m.text} → {m.fix}" for check_id, m in ordered[:max_items]]
 
 
 def _judge_suggestions(judge: LLMClient, evaluation: SkillEvaluation, max_items: int) -> tuple[list[str], str | None]:
@@ -484,12 +492,23 @@ class SkillEvaluationBuilder:
                 )
 
         if self.suggestions_enabled:
+            evaluation.suggestions_ran = True
+            code_suggestions = _code_suggestions(evaluation.lint_report, self.suggestions_max)
             if self.judge is None:
-                evaluation.suggestions_error = "no judge LLM provided; suggestion generation skipped"
+                evaluation.suggestions = code_suggestions
+                if not self.lint_enabled:
+                    evaluation.suggestions_error = "no judge LLM provided; suggestion generation skipped"
             else:
-                evaluation.suggestions, evaluation.suggestions_error = _judge_suggestions(
-                    self.judge, evaluation, self.suggestions_max
-                )
+                suggestions = list(code_suggestions)
+                if len(suggestions) < self.suggestions_max and _build_evidence(evaluation) != "{}":
+                    llm_suggestions, error = _judge_suggestions(self.judge, evaluation, self.suggestions_max)
+                    seen = {s.strip() for s in suggestions}
+                    for s in llm_suggestions:
+                        if s.strip() not in seen:
+                            suggestions.append(s)
+                            seen.add(s.strip())
+                    evaluation.suggestions_error = error
+                evaluation.suggestions = suggestions[: self.suggestions_max]
 
         return evaluation
 

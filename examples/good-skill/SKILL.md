@@ -1,5 +1,5 @@
 ---
-name: good_skill
+name: good-skill
 description: Use this skill when the user asks for a weekly report or wants scattered work notes organized; it compiles raw records into a structured weekly report document.
 ---
 

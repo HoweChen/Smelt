@@ -18,7 +18,7 @@ from smelt.lint.models import CheckResult, Message, Severity, SkillDoc
 from smelt.lint.scorer import build_report, grade_of
 
 ROOT = Path(__file__).resolve().parent.parent
-GOOD = ROOT / "examples" / "good_skill"
+GOOD = ROOT / "examples" / "good-skill"
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +72,7 @@ def test_discover_skills_errors(tmp_path):
 
 def test_load_skill_from_file_path():
     doc = load_skill(GOOD / "SKILL.md")
-    assert doc.name == "good_skill"
+    assert doc.name == "good-skill"
 
 
 # ---------------------------------------------------------------------------
@@ -111,10 +111,10 @@ def test_metadata_name_mismatch_with_dir():
 
 
 def test_metadata_description_too_short_and_too_long():
-    short = MetadataCheck().run(_doc({"name": "good_skill", "description": "short"}))
+    short = MetadataCheck().run(_doc({"name": "good-skill", "description": "short"}))
     assert any("too short" in m.text for m in short.messages)
 
-    long = MetadataCheck().run(_doc({"name": "good_skill", "description": "long" * 200}))
+    long = MetadataCheck().run(_doc({"name": "good-skill", "description": "long" * 200}))
     assert any("too long" in m.text for m in long.messages)
 
 
@@ -151,7 +151,7 @@ def test_main_validate_passthrough(capsys):
     from smelt.cli import main
 
     assert main(["validate", str(GOOD)]) == 0
-    assert "good_skill" in capsys.readouterr().out
+    assert "good-skill" in capsys.readouterr().out
 
 
 def test_cli_run_unsupported_extension_returns_2(tmp_path, capsys):

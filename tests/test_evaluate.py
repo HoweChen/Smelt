@@ -25,7 +25,7 @@ from smelt.evaluate import (
 )
 
 ROOT = Path(__file__).resolve().parent.parent
-GOOD = ROOT / "examples" / "good_skill"
+GOOD = ROOT / "examples" / "good-skill"
 BAD = ROOT / "examples" / "bad_skill"
 
 WRITING_JSON = json.dumps({
@@ -67,7 +67,7 @@ def test_full_evaluation_pipeline(tmp_path):
         .with_suggestions(max_items=2)
         .run()
     )
-    assert evaluation.skill_name == "good_skill"
+    assert evaluation.skill_name == "good-skill"
     assert evaluation.behavior_score == 1.0
     assert evaluation.lint_score == 1.0
     assert evaluation.writing_score == pytest.approx(0.65)
@@ -202,7 +202,7 @@ def _full_evaluation() -> SkillEvaluation:
 
 def test_markdown_report_sections():
     md = _full_evaluation().to_markdown()
-    assert "# Skill Evaluation Report: good_skill" in md
+    assert "# Skill Evaluation Report: good-skill" in md
     assert "## Behavior Tests" in md and "✅ c1" in md
     assert "## Static Lint" in md and "| Check |" in md
     assert "## Writing Review (LLM)" in md and "trigger guidance needs work" in md
@@ -221,7 +221,7 @@ def test_markdown_with_error_and_disabled_parts():
 
 def test_json_report_structure():
     payload = json.loads(_full_evaluation().to_json())
-    assert payload["skill"]["name"] == "good_skill"
+    assert payload["skill"]["name"] == "good-skill"
     assert payload["overall"]["grade"] == "B"
     assert payload["scores"]["behavior"] == 1.0
     assert payload["behavior"][0]["expectations"][0]["passed"] is True
@@ -236,7 +236,7 @@ def test_save_by_extension(tmp_path):
     assert md_path.read_text(encoding="utf-8").startswith("# Skill Evaluation Report")
 
     json_path = evaluation.save(tmp_path / "eval.json")
-    assert json.loads(json_path.read_text(encoding="utf-8"))["skill"]["name"] == "good_skill"
+    assert json.loads(json_path.read_text(encoding="utf-8"))["skill"]["name"] == "good-skill"
 
     explicit = evaluation.save(tmp_path / "eval.txt", format="json")
     assert explicit.read_text(encoding="utf-8").startswith("{")
@@ -253,7 +253,7 @@ def test_cli_evaluate_lint_only_prints_markdown(capsys):
     code = main(["evaluate", str(GOOD), "--no-writing", "--no-suggestions"])
     out = capsys.readouterr().out
     assert code == 0
-    assert "# Skill Evaluation Report: good_skill" in out
+    assert "# Skill Evaluation Report: good-skill" in out
     assert "Overall: **100.0 / 100**" in out
 
 

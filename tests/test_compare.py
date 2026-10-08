@@ -14,7 +14,7 @@ from smelt import compare, evaluate_skill, fixed_agent, new_case, output_equals,
 from smelt.compare import _as_payload
 
 ROOT = Path(__file__).resolve().parent.parent
-GOOD = ROOT / "examples" / "good_skill"
+GOOD = ROOT / "examples" / "good-skill"
 
 
 def _payload(cases, overall=80.0, name="skill"):

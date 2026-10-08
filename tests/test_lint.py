@@ -12,7 +12,7 @@ from smelt.lint.scorer import build_report, grade_of
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = ROOT / "examples"
-GOOD = EXAMPLES / "good_skill"
+GOOD = EXAMPLES / "good-skill"
 BAD = EXAMPLES / "bad_skill"
 
 
@@ -35,7 +35,7 @@ def test_parse_frontmatter_without_yaml_block():
 
 def test_load_good_skill():
     doc = load_skill(GOOD)
-    assert doc.name == "good_skill"
+    assert doc.name == "good-skill"
     assert doc.description.startswith("Use this skill")
     assert len(doc.sections) >= 4
     assert doc.word_count >= 250
@@ -43,7 +43,7 @@ def test_load_good_skill():
 
 def test_discover_skills_scans_children():
     found = {p.name for p in discover_skills(EXAMPLES)}
-    assert found == {"good_skill", "bad_skill", "bad_ref_skill"}
+    assert found == {"good-skill", "bad_skill", "bad_ref_skill"}
 
 
 def test_good_skill_scores_grade_a():
@@ -76,7 +76,7 @@ def test_grade_of_boundaries():
 def test_cli_validate_good_only_passes(capsys):
     assert main(["validate", str(GOOD)]) == 0
     out = capsys.readouterr().out
-    assert "good_skill" in out and "PASS" in out
+    assert "good-skill" in out and "PASS" in out
 
 
 def test_cli_validate_examples_fails_due_to_bad_skill(capsys):
@@ -93,7 +93,7 @@ def test_cli_missing_path_returns_2(capsys):
 def test_renderers_smoke():
     doc = load_skill(GOOD)
     report = build_report(doc, run_checks(doc))
-    assert "good_skill" in render_text(report)
+    assert "good-skill" in render_text(report)
     assert "| Check |" in render_markdown([report])
     payload = json.loads(render_json([report]))
     assert payload[0]["grade"] == "A"

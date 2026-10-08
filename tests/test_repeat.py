@@ -23,7 +23,7 @@ from smelt import (
 from smelt.trace import Trace
 
 ROOT = Path(__file__).resolve().parent.parent
-GOOD = ROOT / "examples" / "good_skill"
+GOOD = ROOT / "examples" / "good-skill"
 
 
 class CyclingAgent:

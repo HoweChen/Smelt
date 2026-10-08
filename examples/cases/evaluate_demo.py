@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from smelt import ScriptedLLM, evaluate_skill, fixed_agent, new_case, output_contains, text, tool_call
 
-GOOD_SKILL = Path(__file__).resolve().parents[1] / "good_skill"
+GOOD_SKILL = Path(__file__).resolve().parents[1] / "good-skill"
 
 # Real world: judge = OpenAIChatClient("kimi-k2", base_url="https://api.moonshot.cn/v1")
 judge = ScriptedLLM([
@@ -51,6 +51,6 @@ report = (
     .run()
 )
 
-out = report.save(Path(__file__).resolve().parents[1] / "reports" / "good_skill_eval.md")
+out = report.save(Path(__file__).resolve().parents[1] / "reports" / "good-skill_eval.md")
 print(f"overall {report.overall_score:.1f} ({report.grade})")
 print(f"report written to {out}")

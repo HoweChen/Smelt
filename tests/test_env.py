@@ -25,7 +25,7 @@ from smelt.env import load_env, parse_env
 config_module = sys.modules["smelt.config"]
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GOOD = os.path.join(ROOT, "examples", "good_skill")
+GOOD = os.path.join(ROOT, "examples", "good-skill")
 
 
 @pytest.fixture(autouse=True)

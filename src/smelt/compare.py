@@ -75,6 +75,7 @@ class CompareResult:
     baseline_overall: float | None = None
     candidate_overall: float | None = None
     coverage_changes: list[str] = field(default_factory=list)  # informational reached→unreached transitions
+    challenge_note: str | None = None  # informational challenge breaks diff; never gates
 
     @property
     def regressions(self) -> list[CaseDiff]:
@@ -112,6 +113,7 @@ class CompareResult:
             "min_delta": self.min_delta,
             "has_regression": self.has_regression,
             "coverage_changes": self.coverage_changes,
+            "challenge_note": self.challenge_note,
             "counts": counts,
             "cases": [d.to_dict() for d in self.cases],
         }
@@ -143,6 +145,9 @@ class CompareResult:
         lines.append("")
         if self.coverage_changes:
             lines.append("**Reference coverage changes:** " + "; ".join(self.coverage_changes))
+            lines.append("")
+        if self.challenge_note:
+            lines.append(f"**Challenge (informational, never gates):** {self.challenge_note}")
             lines.append("")
         if self.has_regression:
             lines.append(f"**Regressions:** {', '.join(d.case for d in self.regressions)}")
@@ -209,6 +214,16 @@ def _diff_case(name: str, base: dict | None, cand: dict | None, min_delta: float
                     reason=f"|Δ|={abs(diff):.2f} within band {band:.2f}", **common)
 
 
+def _challenge_note(base: dict, cand: dict) -> str | None:
+    """Informational challenge-breaks diff; never affects verdicts."""
+    b, c = base.get("challenge"), cand.get("challenge")
+    if not isinstance(b, dict) or not isinstance(c, dict):
+        return None
+    if b.get("skipped") or c.get("skipped"):
+        return None
+    return f"challenge breaks: {b.get('breaks', 0)} → {c.get('breaks', 0)}"
+
+
 def compare(baseline: Any, candidate: Any, *, min_delta: float = 0.05) -> CompareResult:
     """Diff two skill evaluations (SkillEvaluation / payload dict / .json path).
 
@@ -245,4 +260,5 @@ def compare(baseline: Any, candidate: Any, *, min_delta: float = 0.05) -> Compar
         baseline_overall=base.get("overall", {}).get("score"),
         candidate_overall=cand.get("overall", {}).get("score"),
         coverage_changes=changes,
+        challenge_note=_challenge_note(base, cand),
     )

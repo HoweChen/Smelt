@@ -82,10 +82,16 @@ smelt.load_env()                              # apply now; otherwise auto-loaded
 ```
 
 ```dotenv
-# config/smelt.env
-SMELT_API_KEY=sk-...
-SMELT_BASE_URL=https://api.moonshot.cn/v1
+# config/smelt.env — role-based quartet; SMELT_<ROLE>_<KEY> wins, legacy
+# shared keys (SMELT_API_KEY / SMELT_BASE_URL / SMELT_LLM_PROVIDER) are the
+# common fallback. Roles: JUDGE, AGENT, DOCTOR, CHALLENGER.
+SMELT_JUDGE_PROVIDER=openai
+SMELT_JUDGE_BASE_URL=https://api.moonshot.cn/v1
+SMELT_JUDGE_API_KEY=sk-...
 SMELT_JUDGE_MODEL=kimi-k2
+SMELT_DOCTOR_PROVIDER=anthropic
+SMELT_DOCTOR_API_KEY=sk-ant-...
+SMELT_DOCTOR_MODEL=claude-sonnet-4-5
 ```
 
 All variables carry the `SMELT_` prefix. `OpenAIChatClient` falls back to
@@ -391,6 +397,54 @@ smelt evaluate skills/commit --cases cases.py \
     --judge-model kimi-k2 --base-url https://api.moonshot.cn/v1 \
     --output reports/commit.md --fail-under 80
 ```
+
+### Adversarial challenge (on by default)
+
+Every `evaluate` run also sends a challenger agent after the skill: it reads
+SKILL.md and crafts probes — awkward phrasings that should trigger, near-miss
+requests that must not, and distractor fixtures with misleading content.
+Breaks are reported with a suggested `new_case(...)` snippet for human review.
+
+```python
+evaluate_skill("skills/commit", judge=judge_llm, challenger=red_llm)
+    .with_challenge(rounds=2, probes=8)   # defaults: on, 1 round, 8 probes
+    # .with_challenge(enabled=False)      # explicit opt-out
+```
+
+Challenge is **advisory**: it never enters `overall_score` (probes are
+regenerated each run — scoring them would make the same skill version measure
+differently twice). `compare()` shows a breaks-count diff informationally and
+never gates on it. To opt a challenge score into the total anyway:
+`with_weights(behavior=0.4, writing=0.2, lint=0.2, challenge=0.2)`.
+
+The challenger resolves from `SMELT_CHALLENGER_*` (role quartet); prefer a
+different model family than the agent under test — same-family challengers
+share blind spots. Missing challenger config degrades the section to
+"skipped"; other parts still score.
+
+## Health-checking the yardstick (smelt doctor)
+
+Cases written by an agent can be false-green: they pass whether the skill is
+good or bad. `smelt doctor` questions the yardstick itself:
+
+```bash
+smelt doctor cases.py --skill skills/commit --min-score 0.8
+```
+
+- **Mutation check** — deliberately breaks the skill (drops one section /
+  reference / constraint at a time) and re-runs the cases. A case suite that
+  stays green against a broken skill is blind; the report lists surviving
+  mutants with a suggested case each. Mutation score = killed / scorable
+  mutants; kill verdicts use the same noise band as `compare()`.
+- **Judge canary** — feeds the judge one deliberately bad trace (off-topic +
+  hallucinated tool result); a calibrated judge scores it below 0.5.
+- **`@mutate_check(guards="section:Boundaries")`** — declare which skill part
+  a case guards; doctor verifies the case actually kills that mutant, and
+  flags false or dangling guard claims.
+
+Exit codes: 0 healthy · 1 issues found · 2 configuration error. The doctor
+agent is configured independently (`SMELT_DOCTOR_*`); if it is missing,
+doctor refuses to run (silent skipping would be false green).
 
 ## Per-case reports (.report / .report_cli)
 

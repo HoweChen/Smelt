@@ -96,6 +96,7 @@ class SkillEvaluation:
     suggestions: list[str] = field(default_factory=list)
     suggestions_error: str | None = None
     suggestions_ran: bool = False  # True when suggestion generation executed (even if empty)
+    challenge: Any = None  # smelt.challenge.probes.ChallengeResult | None
     weights: dict[str, float] = field(default_factory=dict)
     reference_coverage: list[dict[str, Any]] | None = None  # None when the skill references nothing
 
@@ -124,6 +125,8 @@ class SkillEvaluation:
             "writing": self.writing_score,
             "lint": self.lint_score,
         }
+        if self.weights.get("challenge") and self.challenge is not None:
+            parts["challenge"] = self.challenge.score
         earned = sum(self.weights.get(k, 0.0) * v for k, v in parts.items() if v is not None)
         total_weight = sum(self.weights.get(k, 0.0) for k, v in parts.items() if v is not None)
         if total_weight == 0:
@@ -207,6 +210,22 @@ class SkillEvaluation:
             ),
             "suggestions": self.suggestions,
             "suggestions_error": self.suggestions_error,
+            "challenge": (
+                {
+                    "skipped": self.challenge.skipped,
+                    "note": self.challenge.note,
+                    "rounds": self.challenge.rounds,
+                    "breaks": len(self.challenge.breaks),
+                    "score": self.challenge.score,
+                    "probes": [
+                        {"type": p.probe.type, "trigger": p.probe.trigger,
+                         "verdict": p.verdict, "note": p.note}
+                        for p in self.challenge.probes
+                    ],
+                }
+                if self.challenge
+                else None
+            ),
             "reference_coverage": self.reference_coverage,
         }
 
@@ -279,6 +298,24 @@ class SkillEvaluation:
             for c in self.reference_coverage:
                 reached = f"{c['reached']}×" if c["reached"] else "unreached"
                 lines.append(f"| {c['path']} | {reached} | {c['origin']} |")
+            lines.append("")
+
+        if self.challenge is not None:
+            lines += ["## Challenge (adversarial probes)", ""]
+            if self.challenge.skipped:
+                lines.append(f"(skipped: {self.challenge.skipped})")
+            else:
+                if self.challenge.note:
+                    lines.append(f"> {self.challenge.note}")
+                    lines.append("")
+                lines += ["| Type | Trigger | Verdict | Note |", "|---|---|---|---|"]
+                for p in self.challenge.probes:
+                    mark = {"break": "✘ break", "survived": "✔ survived", "error": "⚠ error"}[p.verdict]
+                    lines.append(f"| {p.probe.type} | {p.probe.trigger} | {mark} | {p.note} |")
+                for p in self.challenge.breaks:
+                    if p.suggestion:
+                        lines += ["", f"Suggested case for break `{p.probe.trigger}`:", "",
+                                  "```python", p.suggestion, "```"]
             lines.append("")
 
         lines += ["## Improvement Suggestions", ""]
@@ -426,6 +463,10 @@ class SkillEvaluationBuilder:
     writing_dimensions: tuple[str, ...] = DEFAULT_DIMENSIONS
     suggestions_enabled: bool = True
     suggestions_max: int = 5
+    challenger: LLMClient | None = None
+    challenge_enabled: bool = True
+    challenge_rounds: int = 1
+    challenge_probes: int = 8
     weight_map: dict[str, float] = field(default_factory=lambda: {"behavior": 0.5, "writing": 0.3, "lint": 0.2})
     times: int | None = None  # explicit repeat count; None = auto (3 for stochastic agents, 1 for deterministic)
 
@@ -448,11 +489,31 @@ class SkillEvaluationBuilder:
     def with_suggestions(self, *, max_items: int = 5, enabled: bool = True) -> SkillEvaluationBuilder:
         return replace(self, suggestions_enabled=enabled, suggestions_max=max_items)
 
-    def with_weights(self, *, behavior: float, writing: float, lint: float) -> SkillEvaluationBuilder:
-        for name, value in (("behavior", behavior), ("writing", writing), ("lint", lint)):
-            if value < 0:
+    def with_challenge(self, *, enabled: bool = True, rounds: int | None = None,
+                       probes: int | None = None) -> SkillEvaluationBuilder:
+        """Adversarial probes (on by default). rounds: challenger iterations;
+        probes: max probes per round."""
+        kwargs: dict[str, Any] = {"challenge_enabled": enabled}
+        if rounds is not None:
+            if rounds < 1:
+                raise ValueError(f"rounds must be >= 1, got {rounds}")
+            kwargs["challenge_rounds"] = rounds
+        if probes is not None:
+            if probes < 1:
+                raise ValueError(f"probes must be >= 1, got {probes}")
+            kwargs["challenge_probes"] = probes
+        return replace(self, **kwargs)
+
+    def with_weights(self, *, behavior: float, writing: float, lint: float,
+                     challenge: float | None = None) -> SkillEvaluationBuilder:
+        for name, value in (("behavior", behavior), ("writing", writing), ("lint", lint),
+                            ("challenge", challenge)):
+            if value is not None and value < 0:
                 raise ValueError(f"weight {name} must not be negative")
-        return replace(self, weight_map={"behavior": behavior, "writing": writing, "lint": lint})
+        weights = {"behavior": behavior, "writing": writing, "lint": lint}
+        if challenge is not None:
+            weights["challenge"] = challenge  # opt-in: probe scores are stochastic
+        return replace(self, weight_map=weights)
 
     def with_times(self, n: int) -> SkillEvaluationBuilder:
         """Run every behavior case ``n`` times and aggregate mean ± std.
@@ -508,6 +569,9 @@ class SkillEvaluationBuilder:
                     evaluation.suggestions_error = error
                 evaluation.suggestions = suggestions[: self.suggestions_max]
 
+        if self.challenge_enabled:
+            evaluation.challenge = self._run_challenge()
+
         return evaluation
 
     def _read_document(self) -> str:
@@ -516,6 +580,33 @@ class SkillEvaluationBuilder:
         if path.is_dir():
             path = path / "SKILL.md"
         return path.read_text(encoding="utf-8")
+
+    def _run_challenge(self):
+        """Adversarial probes; degrades to a skipped ChallengeResult, never raises."""
+        from smelt.challenge.probes import ChallengeResult, challenge_skill
+
+        challenger = self.challenger or self.judge
+        if challenger is None:
+            return ChallengeResult(skipped="no challenger configured (challenger= or SMELT_CHALLENGER_MODEL)")
+        fallback = self.agent_llm or self.judge
+        if self.cases and all(_is_deterministic(c, fallback) for c in self.cases):
+            return ChallengeResult(skipped="deterministic backend")
+        if fallback is None:
+            return ChallengeResult(skipped="no agent llm available for probe runs")
+        note = "challenger fell back to judge (same model; credibility reduced)" if self.challenger is None else ""
+        try:
+            return challenge_skill(
+                self.skill_path,
+                challenger=challenger,
+                agent_llm=fallback,
+                judge=self.judge or challenger,
+                tools=self.tools,
+                rounds=self.challenge_rounds,
+                probes=self.challenge_probes,
+                note=note,
+            )
+        except Exception as e:  # noqa: BLE001 - challenge must never block the review
+            return ChallengeResult(skipped=f"challenge failed: {type(e).__name__}: {e}")
 
     def _bind(self, case: SmeltCase) -> SmeltCase:
         """Cases without an agent get bound to a SmeltAgent loading the skill under review."""
@@ -580,6 +671,7 @@ def evaluate_skill(
     *,
     judge: LLMClient | None = None,
     agent_llm: LLMClient | None = None,
+    challenger: LLMClient | None = None,
     tools: Sequence[Tool] = (),
 ) -> SkillEvaluationBuilder:
     """Start a comprehensive skill evaluation.
@@ -587,11 +679,14 @@ def evaluate_skill(
     - ``judge``: judging model for the writing review and suggestion generation;
     - ``agent_llm``: model used when auto-binding agents for behavior cases
       (falls back to judge);
+    - ``challenger``: model generating adversarial probes (falls back to judge,
+      with a same-model credibility note);
     - ``tools``: tools available to auto-bound agents.
     """
     return SkillEvaluationBuilder(
         skill_path=Path(skill),
         judge=judge,
         agent_llm=agent_llm,
+        challenger=challenger,
         tools=tuple(tools),
     )

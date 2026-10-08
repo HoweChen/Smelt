@@ -4,9 +4,12 @@
   (default ``.env`` in the working directory; ``None`` disables loading);
 - ``load_env()`` parses and applies the file into ``os.environ`` — variables
   already present in the environment always win (never overridden);
-- ``OpenAIChatClient`` auto-loads the configured file once and falls back to
-  ``SMELT_API_KEY`` / ``SMELT_BASE_URL``; the CLI judge falls back to
-  ``SMELT_JUDGE_MODEL``.
+- Role-based quartet (primary scheme): ``SMELT_<ROLE>_PROVIDER`` /
+  ``_BASE_URL`` / ``_API_KEY`` / ``_MODEL`` for ROLE in
+  JUDGE / AGENT / DOCTOR / CHALLENGER (see ``smelt.llm_config.LLMConfig``);
+- Legacy shared keys ``SMELT_API_KEY`` / ``SMELT_BASE_URL`` /
+  ``SMELT_LLM_PROVIDER`` remain as the common fallback;
+  ``OpenAIChatClient`` auto-loads the configured file once.
 
 Zero dependencies — the parser covers the common .env subset: comments,
 ``export`` prefix, single/double quotes, inline comments on unquoted values.

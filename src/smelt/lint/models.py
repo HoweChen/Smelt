@@ -26,6 +26,7 @@ class Severity(str, Enum):
 class Message:
     severity: Severity
     text: str
+    fix: str | None = None  # concrete remediation hint, rendered after " → "
 
     def __str__(self) -> str:  # pragma: no cover - display helper
         icon = {Severity.INFO: "ℹ", Severity.WARNING: "⚠", Severity.ERROR: "✖"}[self.severity]

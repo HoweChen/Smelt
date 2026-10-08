@@ -14,7 +14,7 @@ from smelt.lint.loader import (
     load_skill,
     parse_frontmatter,
 )
-from smelt.lint.models import CheckResult, Message, Severity, SkillDoc
+from smelt.lint.models import CheckResult, Message, Severity, SkillDoc, SkillReport
 from smelt.lint.scorer import build_report, grade_of
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -249,3 +249,60 @@ def test_env_restore_preserves_preexisting_value():
         assert os.environ["SMELT_PRESET"] == "original"  # restored, not deleted
     finally:
         os.environ.pop("SMELT_PRESET", None)
+
+
+# ---------------------------------------------------------------------------
+# Message fix hints and their rendering
+# ---------------------------------------------------------------------------
+
+
+def test_message_fix_defaults_to_none():
+    m = Message(Severity.ERROR, "broken")
+    assert m.fix is None
+
+
+def test_render_text_shows_fix_hint():
+    report = SkillReport(
+        skill_path=Path("/tmp/x"),
+        results=[
+            CheckResult(
+                check_id="c",
+                name="C",
+                score=50.0,
+                passed=False,
+                messages=[Message(Severity.ERROR, "missing file", fix="create the file")],
+            )
+        ],
+        total_score=50.0,
+        grade="F",
+    )
+    from smelt.lint.report import render_text
+
+    assert "missing file → create the file" in render_text(report)
+
+
+def test_render_json_includes_fix_only_when_present():
+    from smelt.lint.report import render_json
+
+    report = SkillReport(
+        skill_path=Path("/tmp/x"),
+        results=[
+            CheckResult(
+                check_id="c",
+                name="C",
+                score=50.0,
+                passed=False,
+                messages=[
+                    Message(Severity.ERROR, "a", fix="do a"),
+                    Message(Severity.WARNING, "b"),
+                ],
+            )
+        ],
+        total_score=50.0,
+        grade="F",
+    )
+    import json
+
+    msgs = json.loads(render_json([report]))[0]["checks"][0]["messages"]
+    assert msgs[0]["fix"] == "do a"
+    assert "fix" not in msgs[1]

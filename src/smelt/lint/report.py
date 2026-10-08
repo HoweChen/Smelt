@@ -5,9 +5,13 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from smelt.lint.models import Severity, SkillReport
+from smelt.lint.models import Message, Severity, SkillReport
 
 _ICON = {Severity.INFO: "ℹ", Severity.WARNING: "⚠", Severity.ERROR: "✖"}
+
+
+def _fmt(m: Message) -> str:
+    return f"{_ICON[m.severity]} {m.text}" + (f" → {m.fix}" if m.fix else "")
 
 
 def render_text(report: SkillReport) -> str:
@@ -22,7 +26,7 @@ def render_text(report: SkillReport) -> str:
         mark = "✔" if r.passed else "✖"
         lines.append(f"  {mark} [{r.score:5.1f}] {r.name}")
         for m in r.messages:
-            lines.append(f"        {_ICON[m.severity]} {m.text}")
+            lines.append(f"        {_fmt(m)}")
     lines.append("")
     return "\n".join(lines)
 
@@ -36,7 +40,7 @@ def render_markdown(reports: list[SkillReport]) -> str:
         parts.append("| Check | Score | Result | Issues |")
         parts.append("|---|---|---|---|")
         for r in report.results:
-            msgs = "<br>".join(f"{_ICON[m.severity]} {m.text}" for m in r.messages) or "—"
+            msgs = "<br>".join(_fmt(m) for m in r.messages) or "—"
             parts.append(f"| {r.name} | {r.score:.1f} | {'✅' if r.passed else '❌'} | {msgs} |")
         parts.append("")
     return "\n".join(parts)
@@ -52,7 +56,10 @@ def render_json(reports: list[SkillReport]) -> str:
             "checks": [
                 {
                     **{k: v for k, v in asdict(c).items() if k != "messages"},
-                    "messages": [{"severity": m.severity.value, "text": m.text} for m in c.messages],
+                    "messages": [
+                        {"severity": m.severity.value, "text": m.text, **({"fix": m.fix} if m.fix else {})}
+                        for m in c.messages
+                    ],
                 }
                 for c in r.results
             ],

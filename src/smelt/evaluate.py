@@ -179,7 +179,10 @@ class SkillEvaluation:
                             "name": c.name,
                             "score": c.score,
                             "passed": c.passed,
-                            "messages": [{"severity": m.severity.value, "text": m.text} for m in c.messages],
+                            "messages": [
+                                {"severity": m.severity.value, "text": m.text, **({"fix": m.fix} if m.fix else {})}
+                                for m in c.messages
+                            ],
                         }
                         for c in self.lint_report.results
                     ],

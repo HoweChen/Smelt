@@ -97,3 +97,12 @@ def test_renderers_smoke():
     assert "| Check |" in render_markdown([report])
     payload = json.loads(render_json([report]))
     assert payload[0]["grade"] == "A"
+
+
+def test_every_lint_message_carries_a_fix_hint():
+    for skill_dir in (BAD, EXAMPLES / "bad_ref_skill"):
+        doc = load_skill(skill_dir)
+        for result in run_checks(doc):
+            for m in result.messages:
+                assert m.fix, f"[{result.check_id}] message without fix: {m.text}"
+                assert "|" not in m.fix  # would break the markdown table cell

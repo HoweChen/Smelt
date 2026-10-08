@@ -36,7 +36,13 @@ class ClarityCheck(Check):
             if pat.search(haystack):
                 found.append(label)
         if found:
-            messages.append(Message(Severity.ERROR, f"found unfilled content: {', '.join(found)}"))
+            messages.append(
+                Message(
+                    Severity.ERROR,
+                    f"found unfilled content: {', '.join(found)}",
+                    fix="replace the placeholder with real content or remove it",
+                )
+            )
             score -= 15 * len(found)
 
         if skill.word_count > MAX_WORDS:
@@ -45,6 +51,7 @@ class ClarityCheck(Check):
                     Severity.WARNING,
                     f"body is ~{skill.word_count} words, exceeding {MAX_WORDS}; skills should stay concise — "
                     "move details into references/ or other companion files",
+                    fix="move details into references/ and keep SKILL.md an overview",
                 )
             )
             score -= 15

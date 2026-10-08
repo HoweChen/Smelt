@@ -50,7 +50,13 @@ class AssetCheck(Check):
         score = 100.0
         if missing:
             for r in missing[:5]:
-                messages.append(Message(Severity.ERROR, f"referenced file does not exist: {r}"))
+                messages.append(
+                    Message(
+                        Severity.ERROR,
+                        f"referenced file does not exist: {r}",
+                        fix="create the file or remove the reference",
+                    )
+                )
             score -= min(60, 20 * len(missing))
 
         return self._result(score, messages)

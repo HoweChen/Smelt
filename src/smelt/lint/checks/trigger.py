@@ -29,12 +29,20 @@ class TriggerCheck(Check):
         score = 100.0
         if not hits:
             messages.append(
-                Message(Severity.ERROR, "no trigger guidance found (use when / 当…时 / trigger); agents won't know when to load this skill")
+                Message(
+                    Severity.ERROR,
+                    "no trigger guidance found (use when / 当…时 / trigger); agents won't know when to load this skill",
+                    fix="state when to use the skill, e.g. 'Use when ...' or '当…时使用'",
+                )
             )
             score = 0.0
         elif len(hits) <= 2:
             messages.append(
-                Message(Severity.WARNING, f"weak trigger guidance (only {len(hits)} kind(s) matched: {', '.join(hits)})")
+                Message(
+                    Severity.WARNING,
+                    f"weak trigger guidance (only {len(hits)} kind(s) matched: {', '.join(hits)})",
+                    fix="add more trigger formulations (keywords, scenarios, both languages if bilingual)",
+                )
             )
             score -= 25
 

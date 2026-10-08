@@ -25,9 +25,21 @@ class TestCoverageCheck(Check):
         if has_inline_example:
             return self._result(
                 70.0,
-                [Message(Severity.WARNING, "only inline examples; add a standalone tests/ or evals/ directory with executable cases")],
+                [
+                    Message(
+                        Severity.WARNING,
+                        "only inline examples; add a standalone tests/ or evals/ directory with executable cases",
+                        fix="add a tests/ or evals/ directory with executable cases",
+                    )
+                ],
             )
         return self._result(
             30.0,
-            [Message(Severity.ERROR, "no test cases / examples / eval files; the skill's actual behavior cannot be verified")],
+            [
+                Message(
+                    Severity.ERROR,
+                    "no test cases / examples / eval files; the skill's actual behavior cannot be verified",
+                    fix="add at least one behavior test or eval case",
+                )
+            ],
         )

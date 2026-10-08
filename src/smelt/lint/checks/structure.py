@@ -22,20 +22,40 @@ class StructureCheck(Check):
         h2 = [t for lvl, t in skill.sections if lvl == 2]
         if len(h2) < MIN_SECTIONS:
             messages.append(
-                Message(Severity.ERROR, f"only {len(h2)} H2 section(s); recommend at least {MIN_SECTIONS} (e.g. When to use / Steps / Examples)")
+                Message(
+                    Severity.ERROR,
+                    f"only {len(h2)} H2 section(s); recommend at least {MIN_SECTIONS} (e.g. When to use / Steps / Examples)",
+                    fix="split the body into sections such as When to use / Steps / Examples",
+                )
             )
             score -= 40
         elif len(h2) < 3:
-            messages.append(Message(Severity.WARNING, "few sections; consider adding examples or caveats"))
+            messages.append(
+                Message(
+                    Severity.WARNING,
+                    "few sections; consider adding examples or caveats",
+                    fix="add an Examples or Caveats section",
+                )
+            )
             score -= 10
 
         if skill.word_count < MIN_WORDS:
             messages.append(
-                Message(Severity.ERROR, f"body is only ~{skill.word_count} words; too thin for an agent to act on")
+                Message(
+                    Severity.ERROR,
+                    f"body is only ~{skill.word_count} words; too thin for an agent to act on",
+                    fix="add concrete steps, examples, and failure-path notes",
+                )
             )
             score -= 40
         elif skill.word_count < IDEAL_MIN_WORDS:
-            messages.append(Message(Severity.WARNING, f"body is ~{skill.word_count} words; aim for at least {IDEAL_MIN_WORDS}"))
+            messages.append(
+                Message(
+                    Severity.WARNING,
+                    f"body is ~{skill.word_count} words; aim for at least {IDEAL_MIN_WORDS}",
+                    fix="expand thin sections with concrete detail",
+                )
+            )
             score -= 10
 
         return self._result(score, messages)

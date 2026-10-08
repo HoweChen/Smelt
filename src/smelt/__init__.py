@@ -24,6 +24,7 @@ __version__ = "0.4.2"
 from smelt.case import SmeltCase, new_case
 from smelt.challenge.doctor import DoctorReport, doctor
 from smelt.challenge.guards import mutate_check
+from smelt.challenge.probes import ChallengeResult
 from smelt.compare import CaseDiff, CompareResult, compare
 from smelt.config import SmeltConfig, config, configure
 from smelt.env import load_env
@@ -88,6 +89,7 @@ __all__ = [
     "CaseDiff",
     "CaseInput",
     "CaseResult",
+    "ChallengeResult",
     "CompareResult",
     "ContextSpec",
     "DirectoryInput",

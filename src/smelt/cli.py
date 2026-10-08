@@ -69,7 +69,13 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     elif args.writing or args.suggestions:
         print("ℹ no --judge-model: writing review and suggestions will be marked as skipped", file=sys.stderr)
 
-    builder = evaluate_skill(args.path, judge=judge)
+    challenger = None
+    try:
+        challenger = _role_client(args, "challenger")
+    except Exception:  # noqa: BLE001 - missing challenger degrades challenge to skipped/fallback
+        challenger = None
+
+    builder = evaluate_skill(args.path, judge=judge, challenger=challenger)
     if args.cases:
         cases: list[SmeltCase] = []
         for p in args.cases:
@@ -85,6 +91,10 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
         builder = builder.with_writing(enabled=False)
     if not args.suggestions:
         builder = builder.with_suggestions(enabled=False)
+    if not args.challenge:
+        builder = builder.with_challenge(enabled=False)
+    elif args.challenge_rounds is not None or args.challenge_probes is not None:
+        builder = builder.with_challenge(rounds=args.challenge_rounds, probes=args.challenge_probes)
 
     try:
         evaluation = builder.run()
@@ -178,6 +188,13 @@ def _build_parser() -> argparse.ArgumentParser:
     ev.add_argument("--no-lint", dest="lint", action="store_false", help="disable the static lint part")
     ev.add_argument("--no-writing", dest="writing", action="store_false", help="disable the LLM writing review part")
     ev.add_argument("--no-suggestions", dest="suggestions", action="store_false", help="disable suggestion generation")
+    ev.add_argument("--no-challenge", dest="challenge", action="store_false", help="disable adversarial probes")
+    ev.add_argument("--challenge-rounds", type=int, default=None, help="challenger iterations (default 1)")
+    ev.add_argument("--challenge-probes", type=int, default=None, help="max probes per round (default 8)")
+    ev.add_argument("--challenger-provider", default=None)
+    ev.add_argument("--challenger-model", default=None, help="falls back to SMELT_CHALLENGER_MODEL")
+    ev.add_argument("--challenger-base-url", default=None)
+    ev.add_argument("--challenger-api-key", default=None)
 
     cmp_parser = sub.add_parser("compare", help="diff two evaluation reports (.json); exit 1 on regression")
     cmp_parser.add_argument("baseline", type=Path, help="baseline report (.json from evaluate --output)")

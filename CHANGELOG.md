@@ -21,6 +21,13 @@ All notable changes to Smelt are documented here. Format follows
   provider / base_url / api_key / model quartet from `SMELT_<ROLE>_*`;
   legacy shared `SMELT_API_KEY` / `SMELT_BASE_URL` / `SMELT_LLM_PROVIDER`
   remain as common fallback.
+- **evaluate's challenge part** — a challenger agent generates adversarial
+  probes (hard-trigger / no-trigger / distractor) on every run; breaks are
+  reported with suggested case snippets for human review. Advisory only:
+  never enters `overall_score` unless explicitly weighted; `--no-challenge`
+  opts out; `SMELT_CHALLENGER_*` configures the challenger.
+- **`compare()` challenge note** — informational breaks-count diff between
+  two reports; never counts as a regression.
 
 ## [0.4.2] - 2026-10-08
 
